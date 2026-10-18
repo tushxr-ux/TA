@@ -28,14 +28,21 @@ export default function ChatBubble({ msg, isMine, onLongPress }: Props) {
       onContextMenu={e => { e.preventDefault(); onLongPress?.(msg); }}
     >
       <div className={`${styles.bubble} ${isMine ? styles.bubbleMine : styles.bubbleTheirs}`}>
-        {msg.type === "image" && msg.mediaUrl && (
+        {msg.type === "image" && (msg.mediaUrl || msg.body) && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={msg.mediaUrl} alt="Sent image" className={styles.mediaImg} />
+          <img
+            src={msg.mediaUrl || msg.body}
+            alt="Sent image"
+            className={styles.mediaImg}
+            loading="lazy"
+          />
         )}
-        {msg.type === "audio" && msg.mediaUrl && (
-          <audio controls src={msg.mediaUrl} className={styles.audio} />
+        {msg.type === "audio" && (msg.mediaUrl || msg.body) && (
+          <audio controls src={msg.mediaUrl || msg.body} className={styles.audio} />
         )}
-        {msg.body && <p className={styles.text}>{msg.body}</p>}
+        {msg.type !== "image" && msg.type !== "audio" && msg.body && (
+          <p className={styles.text}>{msg.body}</p>
+        )}
 
         <div className={styles.meta}>
           <span className={styles.time}>{time}</span>
