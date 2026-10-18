@@ -8,8 +8,12 @@ export class ConversationsController {
   constructor(private svc: ConversationsService) {}
 
   @Get('conversations')
-  list(@Request() req: any) {
-    return this.svc.list(req.user.userId);
+  async list(@Request() req: any) {
+    try {
+      return await this.svc.list(req.user.userId);
+    } catch (err: any) {
+      return { error: err?.message, detail: err?.detail };
+    }
   }
 
   @Post('conversations/direct/:targetUserId')

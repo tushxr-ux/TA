@@ -1,46 +1,83 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, DataSource } from 'typeorm';
 import { Conversation, ConversationMember } from './conversations.entities';
+import { User } from '../users/user.entity';
+import { Message } from '../messages/message.entity';
 
 @Injectable()
 export class ConversationsService {
   constructor(
     @InjectRepository(Conversation) private convs: Repository<Conversation>,
     @InjectRepository(ConversationMember) private members: Repository<ConversationMember>,
+    private ds: DataSource,
   ) {}
 
   /** List conversations for user with partner info, last message, and unread count */
   async list(userId: string) {
-    return this.convs.query(`
-      SELECT
-        c.id,
-        c.type,
-        c.created_at,
-        partner.id AS partner_id,
-        partner.display_name AS partner_name,
-        partner.username AS partner_username,
-        partner.last_seen_at AS partner_last_seen,
-        (
-          SELECT json_build_object(
-            'id', m.id,
-            'senderId', m.sender_id,
-            'type', m.type,
-            'body', encode(m.body, 'escape'),
-            'createdAt', m.created_at
-          )
-          FROM messages m
-          WHERE m.conversation_id = c.id AND m.deleted_for_all = false
-          ORDER BY m.created_at DESC LIMIT 1
-        ) AS last_message,
-        0 AS unread_count
-      FROM conversations c
-      JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = $1
-      LEFT JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id != $1
-      LEFT JOIN users partner ON partner.id = cm2.user_id
-      WHERE cm.archived = false
-      ORDER BY (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) DESC NULLS LAST
-    `, [userId]);
+    const memberships = await this.members.find({ where: { userId, archived: false } });
+    if (!memberships.length) return [];
+
+    const convIds = memberships.map(m => m.conversationId);
+    const allMembers = await this.members.find({ where: { conversationId: In(convIds) } });
+    const partnerUserIds = allMembers.filter(m => m.userId !== userId).map(m => m.userId);
+
+    const partnerUsers = partnerUserIds.length > 0
+      ? await this.ds.getRepository(User).find({ where: { id: In(partnerUserIds) } })
+      : [];
+    const partnerMap = new Map(partnerUsers.map(u => [u.id, u]));
+
+    const convMapPartner = new Map<string, string>();
+    for (const m of allMembers) {
+      if (m.userId !== userId) {
+        convMapPartner.set(m.conversationId, m.userId);
+      }
+    }
+
+    const result = [];
+    for (const convId of convIds) {
+      const partnerId = convMapPartner.get(convId);
+      const partner = partnerId ? partnerMap.get(partnerId) : null;
+
+      const lastMsg = await this.ds.getRepository(Message).findOne({
+        where: { conversationId: convId, deletedForAll: false },
+        order: { createdAt: 'DESC' },
+      });
+
+      let bodyStr = '';
+      if (lastMsg?.body) {
+        if (Buffer.isBuffer(lastMsg.body)) {
+          bodyStr = lastMsg.body.toString('utf8');
+        } else if (typeof lastMsg.body === 'object' && Array.isArray((lastMsg.body as any).data)) {
+          bodyStr = Buffer.from((lastMsg.body as any).data).toString('utf8');
+        } else {
+          bodyStr = String(lastMsg.body);
+        }
+      }
+
+      result.push({
+        id: convId,
+        type: 'direct',
+        partner_id: partnerId,
+        partner_name: partner?.displayName || partner?.username || 'Chat',
+        partner_username: partner?.username,
+        partner_last_seen: partner?.lastSeenAt,
+        last_message: lastMsg ? {
+          id: lastMsg.id,
+          senderId: lastMsg.senderId,
+          type: lastMsg.type,
+          body: bodyStr,
+          createdAt: lastMsg.createdAt,
+        } : null,
+        unread_count: 0,
+      });
+    }
+
+    return result.sort((a, b) => {
+      const tA = a.last_message?.createdAt ? new Date(a.last_message.createdAt).getTime() : 0;
+      const tB = b.last_message?.createdAt ? new Date(b.last_message.createdAt).getTime() : 0;
+      return tB - tA;
+    });
   }
 
   /** Find existing 1:1 conversation or create a new direct conversation */
@@ -73,14 +110,15 @@ export class ConversationsService {
 
   /** Sync endpoint — missed events since a cursor timestamp */
   async sync(userId: string, since: string) {
-    return this.convs.query(`
-      SELECT m.*
-      FROM messages m
-      JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = $1
-      WHERE m.created_at > $2
-        AND m.deleted_for_all = false
-      ORDER BY m.created_at ASC
-      LIMIT 200
-    `, [userId, since]);
+    const memberships = await this.members.find({ where: { userId } });
+    if (!memberships.length) return [];
+    const convIds = memberships.map(m => m.conversationId);
+    return this.ds.getRepository(Message).find({
+      where: {
+        conversationId: In(convIds),
+        deletedForAll: false,
+      },
+      order: { createdAt: 'ASC' },
+    });
   }
 }
