@@ -16,8 +16,8 @@ import { Inject } from '@nestjs/common';
 import { Message } from '../messages/message.entity';
 
 @WebSocketGateway({
-  cors: { origin: process.env.FRONTEND_URL ?? 'http://localhost:3000', credentials: true },
-  transports: ['websocket'],
+  cors: { origin: true, credentials: true },
+  transports: ['websocket', 'polling'],
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
