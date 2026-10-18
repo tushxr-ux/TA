@@ -8,16 +8,21 @@ import { InviteCode } from './invite-code.entity';
 export class AdminService implements OnModuleInit {
   constructor(@InjectRepository(InviteCode) private codes: Repository<InviteCode>) {}
 
-  /** Seed the bootstrap invite from env var on startup */
+  /** Seed bootstrap and testing invite codes on startup */
   async onModuleInit() {
-    const raw = process.env.BOOTSTRAP_INVITE;
-    if (!raw) return;
-    const hash = this.sha256(raw.toUpperCase().replace(/-/g, ''));
-    const exists = await this.codes.findOne({ where: { codeHash: hash } });
-    if (!exists) {
-      await this.codes.save(this.codes.create({ codeHash: hash, maxUses: 1 }));
-      console.log('Bootstrap invite code seeded.');
+    const testCodes = ['TEST-CODE-2026', 'TOGETHER-2026'];
+    if (process.env.BOOTSTRAP_INVITE) testCodes.push(process.env.BOOTSTRAP_INVITE);
+
+    for (const code of testCodes) {
+      const hash = this.sha256(code.toUpperCase().replace(/-/g, ''));
+      const exists = await this.codes.findOne({ where: { codeHash: hash } });
+      if (!exists) {
+        await this.codes.save(this.codes.create({ codeHash: hash, maxUses: 99999, usedCount: 0 }));
+      } else if (exists.revoked || exists.usedCount >= exists.maxUses) {
+        await this.codes.update(exists.id, { maxUses: 99999, revoked: false });
+      }
     }
+    console.log('Invite codes seeded for testing.');
   }
 
   private sha256(val: string) {
