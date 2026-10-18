@@ -10,6 +10,8 @@ async function bootstrap() {
     origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
     credentials: true,
   });
-  await app.listen(process.env.PORT ?? 4000);
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
+  await app.listen(port, '0.0.0.0');
+  console.log(`Together API listening on 0.0.0.0:${port}`);
 }
 bootstrap();
