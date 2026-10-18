@@ -3,18 +3,18 @@ import InstallBanner from "@/components/InstallBanner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Together",
-  description: "Private chat for two",
+  title: "TA — Private Couple Chat",
+  description: "End-to-end encrypted private chat",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Together",
+    title: "TA",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0f0f1a",
+  themeColor: "#111b21",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,

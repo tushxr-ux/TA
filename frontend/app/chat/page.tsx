@@ -1,10 +1,22 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSocket } from "@/hooks/useSocket";
 import ChatBubble, { Message } from "@/components/ChatBubble";
 import DeleteRangeSheet from "@/components/DeleteRangeSheet";
 import Toast from "@/components/Toast";
+import {
+  IconTALogo,
+  IconSearch,
+  IconKey,
+  IconUserPlus,
+  IconLogout,
+  IconBack,
+  IconPaperclip,
+  IconSend,
+  IconMore,
+  IconLock,
+} from "@/components/Icons";
 import { API_URL } from "@/lib/api";
 import styles from "./page.module.css";
 
@@ -16,7 +28,7 @@ interface UserProfile {
 }
 
 interface ChatItem {
-  id?: string;             // conversationId (if exists)
+  id?: string;             // conversationId
   contactId: string;       // partner's userId
   displayName: string;
   username?: string;
@@ -44,7 +56,7 @@ export default function ChatPage() {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Messages & Input
+  // Messages & State
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
@@ -84,7 +96,6 @@ export default function ChatPage() {
         });
 
         if (res.status === 401) {
-          // Token expired: attempt refresh
           const refreshToken = localStorage.getItem("refresh_token");
           if (refreshToken) {
             const refreshRes = await fetch(`${API_URL}/auth/refresh`, {
@@ -115,14 +126,14 @@ export default function ChatPage() {
         setMe(data);
         if (data.contactCode) setMyContactCode(data.contactCode);
       } catch {
-        // Network temporary issue — keep token
+        // network temporary fallback
       }
     }
 
     loadMe(storedToken);
   }, [router]);
 
-  // ── Load Chats and Contacts ───────────────────────────────────────────────
+  // ── Load Chats & Contacts ─────────────────────────────────────────────────
   const loadChatsAndContacts = useCallback(async () => {
     const curToken = token || localStorage.getItem("access_token");
     if (!curToken) return;
@@ -139,38 +150,42 @@ export default function ChatPage() {
       const combined: ChatItem[] = [];
       const seenContactIds = new Set<string>();
 
-      // Conversations first (ordered by recent message)
-      for (const c of convList) {
-        const partnerId = c.partner_id;
-        if (partnerId) seenContactIds.add(partnerId);
+      // Active conversations first
+      if (Array.isArray(convList)) {
+        for (const c of convList) {
+          const partnerId = c.partner_id;
+          if (partnerId) seenContactIds.add(partnerId);
 
-        let lastMsg = null;
-        if (c.last_message) {
-          lastMsg = typeof c.last_message === "string" ? JSON.parse(c.last_message) : c.last_message;
+          let lastMsg = null;
+          if (c.last_message) {
+            lastMsg = typeof c.last_message === "string" ? JSON.parse(c.last_message) : c.last_message;
+          }
+
+          combined.push({
+            id: c.id,
+            contactId: partnerId,
+            displayName: c.partner_name || c.partner_username || "Chat",
+            username: c.partner_username,
+            lastSeenAt: c.partner_last_seen,
+            lastMessage: lastMsg,
+            unreadCount: c.unread_count || 0,
+          });
         }
-
-        combined.push({
-          id: c.id,
-          contactId: partnerId,
-          displayName: c.partner_name || c.partner_username || "Chat",
-          username: c.partner_username,
-          lastSeenAt: c.partner_last_seen,
-          lastMessage: lastMsg,
-          unreadCount: c.unread_count || 0,
-        });
       }
 
-      // Add contacts who don't have a conversation yet
-      for (const ct of contactList) {
-        if (!seenContactIds.has(ct.contactId)) {
-          combined.push({
-            contactId: ct.contactId,
-            displayName: ct.displayName || ct.nickname || ct.username || "Contact",
-            username: ct.username,
-            lastSeenAt: ct.lastSeenAt,
-            lastMessage: null,
-            unreadCount: 0,
-          });
+      // Add contacts without conversation yet
+      if (Array.isArray(contactList)) {
+        for (const ct of contactList) {
+          if (!seenContactIds.has(ct.contactId)) {
+            combined.push({
+              contactId: ct.contactId,
+              displayName: ct.displayName || ct.nickname || ct.username || "Contact",
+              username: ct.username,
+              lastSeenAt: ct.lastSeenAt,
+              lastMessage: null,
+              unreadCount: 0,
+            });
+          }
         }
       }
 
@@ -204,7 +219,7 @@ export default function ChatPage() {
     }
   }, [token]);
 
-  // ── Select Contact / Open Chat ────────────────────────────────────────────
+  // ── Select Contact ────────────────────────────────────────────────────────
   const selectChat = async (item: ChatItem) => {
     setActiveChat(item);
     setPartnerTyping(false);
@@ -213,7 +228,6 @@ export default function ChatPage() {
     const curToken = token || localStorage.getItem("access_token");
     let convId = item.id;
 
-    // If conversation doesn't exist yet, get or create 1:1 direct conversation
     if (!convId && item.contactId) {
       try {
         const res = await fetch(`${API_URL}/conversations/direct/${item.contactId}`, {
@@ -238,11 +252,10 @@ export default function ChatPage() {
     }
   };
 
-  // ── Real-time Socket Events ───────────────────────────────────────────────
+  // ── Socket Events ─────────────────────────────────────────────────────────
   useEffect(() => {
     const offs = [
       on("message:new", (msg: any) => {
-        // If message belongs to current conversation, append it
         if (activeConvId && msg.conversationId === activeConvId) {
           setMessages(prev => {
             if (prev.some(m => m.id === msg.id || (msg.clientMsgId && m.id === msg.clientMsgId))) {
@@ -252,7 +265,7 @@ export default function ChatPage() {
           });
           emit("message:delivered", { messageId: msg.id });
         }
-        // Update last message in chat list preview
+
         setChats(prev => prev.map(c => {
           if (c.id === msg.conversationId || c.contactId === msg.senderId) {
             return {
@@ -297,7 +310,7 @@ export default function ChatPage() {
     return () => offs.forEach(off => off?.());
   }, [on, emit, activeConvId, activeChat, me]);
 
-  // Scroll to bottom on new message
+  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, partnerTyping]);
@@ -329,7 +342,6 @@ export default function ChatPage() {
       body: text,
     });
 
-    // Update snippet in chats list
     setChats(prev => prev.map(c => {
       if (c.id === activeConvId) {
         return {
@@ -378,7 +390,6 @@ export default function ChatPage() {
     const isAudio = file.type.startsWith("audio");
     const mediaType = isAudio ? "audio" : "image";
 
-    // Read as Base64 for instant optimistic preview
     const reader = new FileReader();
     reader.onload = async () => {
       const base64Str = reader.result as string;
@@ -416,8 +427,8 @@ export default function ChatPage() {
           body: uploadedUrl,
         });
       } catch (err) {
-        console.warn("Upload fallback error:", err);
-        setToast("Media sent using local preview.");
+        console.warn("Media upload error:", err);
+        setToast("Media sent with local preview.");
       } finally {
         setUploadingMedia(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
@@ -427,7 +438,7 @@ export default function ChatPage() {
     reader.readAsDataURL(file);
   };
 
-  // ── Add Contact by Code ───────────────────────────────────────────────────
+  // ── Add Contact ───────────────────────────────────────────────────────────
   const handleAddContact = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newContactCode.trim()) return;
@@ -448,7 +459,7 @@ export default function ChatPage() {
       if (!res.ok) {
         setToast(data?.error?.message || data?.message || "Failed to add contact");
       } else {
-        setToast("Contact request sent! When they accept, they will appear here.");
+        setToast("Contact request sent!");
         setShowAddModal(false);
         setNewContactCode("");
         loadChatsAndContacts();
@@ -477,7 +488,7 @@ export default function ChatPage() {
 
     if (code) {
       navigator.clipboard.writeText(code);
-      setToast("Contact code copied to clipboard!");
+      setToast("Code copied to clipboard!");
     }
   };
 
@@ -491,20 +502,23 @@ export default function ChatPage() {
       {/* ── Left Sidebar (Chats List) ────────────────────────────────────────── */}
       <aside className={`${styles.sidebar} ${activeChat ? styles.sidebarHiddenMobile : ""}`}>
         <header className={styles.sidebarHeader}>
-          <div className={styles.sidebarTitle}>
-            <span>WhatsApp</span>
+          <div className={styles.brandGroup}>
+            <IconTALogo size={34} />
+            <span className={styles.brandName}>TA</span>
+            <span className={styles.brandTag}>Private</span>
           </div>
+
           <div className={styles.headerActions}>
             <button
               className={styles.iconBtn}
               title="My Contact Code"
-              aria-label="My Code"
+              aria-label="My Contact Code"
               onClick={() => {
                 setShowCodeModal(true);
                 copyMyCode();
               }}
             >
-              🔑
+              <IconKey size={20} />
             </button>
             <button
               className={styles.iconBtn}
@@ -512,7 +526,7 @@ export default function ChatPage() {
               aria-label="Add Contact"
               onClick={() => setShowAddModal(true)}
             >
-              ➕
+              <IconUserPlus size={20} />
             </button>
             <button
               className={styles.iconBtn}
@@ -524,7 +538,7 @@ export default function ChatPage() {
                 window.location.href = "/login";
               }}
             >
-              🚪
+              <IconLogout size={20} />
             </button>
           </div>
         </header>
@@ -532,7 +546,7 @@ export default function ChatPage() {
         {/* Search */}
         <div className={styles.searchWrap}>
           <div className={styles.searchBox}>
-            <span className={styles.searchIcon}>🔍</span>
+            <IconSearch size={16} />
             <input
               type="text"
               placeholder="Search or start new chat"
@@ -543,13 +557,18 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Contact / Conversation List */}
+        {/* Chats List */}
         <div className={styles.chatList} role="list">
           {filteredChats.length === 0 ? (
-            <div className={styles.emptyContacts}>
-              <p>No contacts or conversations yet.</p>
-              <button className={styles.addFirstBtn} onClick={() => setShowAddModal(true)}>
-                + Add your first contact
+            <div className={styles.emptyState}>
+              <IconTALogo size={52} />
+              <p className={styles.emptyTitle}>No conversations yet</p>
+              <p className={styles.emptySubtitle}>
+                Add your partner using their secret code to start your private chat.
+              </p>
+              <button className={styles.addContactBtn} onClick={() => setShowAddModal(true)}>
+                <IconUserPlus size={18} color="#ffffff" />
+                Add Partner
               </button>
             </div>
           ) : (
@@ -569,7 +588,7 @@ export default function ChatPage() {
                 >
                   <div className={styles.avatarWrap}>
                     <div className={styles.avatar}>{initial}</div>
-                    <span className={styles.onlineDot} />
+                    <span className={styles.onlineBadge} />
                   </div>
                   <div className={styles.chatItemContent}>
                     <div className={styles.chatItemTop}>
@@ -598,19 +617,25 @@ export default function ChatPage() {
         </div>
       </aside>
 
-      {/* ── Main Chat Area ───────────────────────────────────────────────────── */}
+      {/* ── Main Chat Room ───────────────────────────────────────────────────── */}
       <main className={`${styles.chatArea} ${!activeChat ? styles.chatHiddenMobile : ""}`}>
         {!activeChat ? (
           <div className={styles.placeholderArea}>
-            <div className={styles.placeholderIcon}>💬</div>
-            <h2 className={styles.placeholderTitle}>Together for Web & Mobile</h2>
+            <div className={styles.placeholderGlow}>
+              <IconTALogo size={64} />
+            </div>
+            <h1 className={styles.placeholderTitle}>TA for Web & Mobile</h1>
             <p className={styles.placeholderSubtitle}>
-              Select a contact to start chatting. Messages are end-to-end encrypted and kept private between you two.
+              Private, high-performance messaging for two. Send messages and media with end-to-end security.
             </p>
+            <div className={styles.placeholderEncrypted}>
+              <IconLock size={14} color="#667781" />
+              <span>End-to-end encrypted</span>
+            </div>
           </div>
         ) : (
           <>
-            {/* WhatsApp Chat Header */}
+            {/* Chat Room Header */}
             <header className={styles.chatHeader}>
               <div
                 className={styles.chatHeaderLeft}
@@ -624,7 +649,7 @@ export default function ChatPage() {
                   aria-label="Back to contacts"
                   title="Back"
                 >
-                  ←
+                  <IconBack size={22} />
                 </button>
                 <div className={styles.avatarWrap}>
                   <div className={styles.avatar}>
@@ -645,7 +670,7 @@ export default function ChatPage() {
                   aria-label="Chat menu"
                   onClick={() => setShowMenu(v => !v)}
                 >
-                  ⋮
+                  <IconMore size={20} />
                 </button>
                 {showMenu && (
                   <div className={styles.menu} role="menu">
@@ -663,7 +688,7 @@ export default function ChatPage() {
               </div>
             </header>
 
-            {/* Messages Scroll Area */}
+            {/* Messages Area */}
             <div
               className={styles.messages}
               onClick={() => {
@@ -676,7 +701,10 @@ export default function ChatPage() {
                 }
               }}
             >
-              <div className={styles.dateDivider}>Messages are end-to-end encrypted</div>
+              <div className={styles.e2eNotice}>
+                <IconLock size={14} color="#ffd279" />
+                <span>Messages are end-to-end encrypted. Nobody outside of this chat can read them.</span>
+              </div>
 
               {messages.map(msg => (
                 <ChatBubble
@@ -711,22 +739,24 @@ export default function ChatPage() {
                 disabled={uploadingMedia}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {uploadingMedia ? "⏳" : "📎"}
+                <IconPaperclip size={20} color={uploadingMedia ? "#00a884" : "#8696a0"} />
               </button>
 
-              <input
-                type="text"
-                placeholder="Type a message"
-                className={styles.msgInput}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                  }
-                }}
-              />
+              <div className={styles.inputCapsule}>
+                <input
+                  type="text"
+                  placeholder="Type a message"
+                  className={styles.msgInput}
+                  value={input}
+                  onChange={handleInputChange}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
+                />
+              </div>
 
               <button
                 className={styles.sendBtn}
@@ -734,7 +764,7 @@ export default function ChatPage() {
                 disabled={!input.trim()}
                 onClick={sendMessage}
               >
-                ➤
+                <IconSend size={18} color="#ffffff" />
               </button>
             </footer>
           </>
@@ -746,12 +776,12 @@ export default function ChatPage() {
         <div className={styles.modalOverlay} onClick={() => setShowAddModal(false)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3 className={styles.modalTitle}>Add Contact</h3>
+              <h3 className={styles.modalTitle}>Add Partner</h3>
               <button className={styles.closeBtn} onClick={() => setShowAddModal(false)}>✕</button>
             </div>
             <form onSubmit={handleAddContact} className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Enter your partner&apos;s 10-character contact code to connect:
+                Enter your partner&apos;s 10-character secret code to connect:
               </p>
               <input
                 type="text"
@@ -767,7 +797,7 @@ export default function ChatPage() {
                 className={styles.modalBtn}
                 disabled={addLoading || !newContactCode.trim()}
               >
-                {addLoading ? "Sending request…" : "Send Contact Request"}
+                {addLoading ? "Connecting…" : "Send Contact Request"}
               </button>
             </form>
           </div>
@@ -779,18 +809,18 @@ export default function ChatPage() {
         <div className={styles.modalOverlay} onClick={() => setShowCodeModal(false)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3 className={styles.modalTitle}>Your Contact Code</h3>
+              <h3 className={styles.modalTitle}>Your Secret Code</h3>
               <button className={styles.closeBtn} onClick={() => setShowCodeModal(false)}>✕</button>
             </div>
             <div className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Share this secret code with your partner so they can add you:
+                Share this 10-character code with your partner so they can add you:
               </p>
               <div className={styles.codeBox} onClick={copyMyCode} title="Click to copy">
                 {myContactCode || "Loading…"}
               </div>
               <button className={styles.modalBtn} onClick={copyMyCode}>
-                📋 Copy Code
+                📋 Copy Code to Clipboard
               </button>
             </div>
           </div>
