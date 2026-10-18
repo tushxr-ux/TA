@@ -10,8 +10,8 @@ export class MessagesService {
     private ds: DataSource,
   ) {}
 
-  /** History — cursor paginated */
-  async getHistory(conversationId: string, userId: string, before?: string, limit = 40) {
+  /** History — cursor paginated, chronological order, clean string body */
+  async getHistory(conversationId: string, userId: string, before?: string, limit = 50) {
     const qb = this.msgs.createQueryBuilder('m')
       .where('m.conversationId = :cid', { cid: conversationId })
       .andWhere('m.deletedForAll = false')
@@ -19,7 +19,23 @@ export class MessagesService {
       .take(Math.min(limit, 100));
 
     if (before) qb.andWhere('m.createdAt < :before', { before });
-    return qb.getMany();
+    const list = await qb.getMany();
+    return list.reverse().map(m => {
+      let bodyStr = '';
+      if (m.body) {
+        if (Buffer.isBuffer(m.body)) {
+          bodyStr = m.body.toString('utf8');
+        } else if (typeof m.body === 'object' && Array.isArray((m.body as any).data)) {
+          bodyStr = Buffer.from((m.body as any).data).toString('utf8');
+        } else {
+          bodyStr = String(m.body);
+        }
+      }
+      return {
+        ...m,
+        body: bodyStr,
+      };
+    });
   }
 
   /** Storage estimate for a date range */

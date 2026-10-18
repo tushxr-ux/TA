@@ -11,4 +11,9 @@ export class MediaController {
   getUploadUrl(@Request() req: any, @Body() body: { mime: string; size: number }) {
     return this.svc.getUploadUrl(body.mime, body.size, req.user.userId);
   }
+
+  @Post('upload')
+  uploadDirect(@Request() req: any, @Body() body: { file: string; mime: string }) {
+    return this.svc.uploadDirect(body.file, body.mime, req.user.userId);
+  }
 }

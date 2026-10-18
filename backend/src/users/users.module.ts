@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Body, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -42,6 +42,11 @@ export class UsersController {
     const code = genCode();
     await this.users.update(req.user.userId, { contactCode: code, contactCodeHash: sha256(code) });
     return { code };
+  }
+
+  @Post('contact-code/regenerate')
+  async regenerateCodePost(@Request() req: any) {
+    return this.regenerateCode(req);
   }
 }
 

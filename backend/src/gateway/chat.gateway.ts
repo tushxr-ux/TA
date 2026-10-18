@@ -75,6 +75,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.redis.setex(`presence:${userId}`, 60, '1');
   }
 
+  @SubscribeMessage('conversation:join')
+  async onJoinConversation(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    if (data?.conversationId) {
+      await socket.join(data.conversationId);
+    }
+  }
+
+  @SubscribeMessage('conversation:leave')
+  async onLeaveConversation(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    if (data?.conversationId) {
+      await socket.leave(data.conversationId);
+    }
+  }
+
   // ── Messaging ─────────────────────────────────────────────────────────────
 
   @SubscribeMessage('message:send')

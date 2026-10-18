@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { createHash } from 'crypto';
 import { ContactRequest, Contact } from './contact.entity';
 import { User } from '../users/user.entity';
@@ -69,7 +69,20 @@ export class ContactsService {
   }
 
   async listContacts(userId: string) {
-    return this.contacts.find({ where: { userId, blocked: false } });
+    const list = await this.contacts.find({ where: { userId, blocked: false } });
+    if (!list.length) return [];
+    const contactIds = list.map(c => c.contactId);
+    const users = await this.users.find({ where: { id: In(contactIds) } });
+    const userMap = new Map(users.map(u => [u.id, u]));
+    return list.map(c => {
+      const u = userMap.get(c.contactId);
+      return {
+        ...c,
+        displayName: c.nickname || u?.displayName || u?.username || 'Contact',
+        username: u?.username,
+        lastSeenAt: u?.lastSeenAt,
+      };
+    });
   }
 
   async block(userId: string, contactId: string) {

@@ -10,15 +10,25 @@ export class ConversationsService {
     @InjectRepository(ConversationMember) private members: Repository<ConversationMember>,
   ) {}
 
-  /** List conversations for user with last message + unread count (raw SQL for efficiency) */
+  /** List conversations for user with partner info, last message, and unread count */
   async list(userId: string) {
     return this.convs.query(`
       SELECT
         c.id,
         c.type,
         c.created_at,
+        partner.id AS partner_id,
+        partner.display_name AS partner_name,
+        partner.username AS partner_username,
+        partner.last_seen_at AS partner_last_seen,
         (
-          SELECT row_to_json(m)
+          SELECT json_build_object(
+            'id', m.id,
+            'senderId', m.sender_id,
+            'type', m.type,
+            'body', encode(m.body, 'escape'),
+            'createdAt', m.created_at
+          )
           FROM messages m
           WHERE m.conversation_id = c.id AND m.deleted_for_all = false
           ORDER BY m.created_at DESC LIMIT 1
@@ -34,9 +44,28 @@ export class ConversationsService {
         ) AS unread_count
       FROM conversations c
       JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = $1
+      LEFT JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id != $1
+      LEFT JOIN users partner ON partner.id = cm2.user_id
       WHERE cm.archived = false
       ORDER BY (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) DESC NULLS LAST
     `, [userId]);
+  }
+
+  /** Find existing 1:1 conversation or create a new direct conversation */
+  async findOrCreateDirect(userA: string, userB: string) {
+    const rows = await this.convs.query(`
+      SELECT c.id
+      FROM conversations c
+      JOIN conversation_members cm1 ON cm1.conversation_id = c.id AND cm1.user_id = $1
+      JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id = $2
+      WHERE c.type = 'direct'
+      LIMIT 1
+    `, [userA, userB]);
+
+    if (rows && rows.length > 0) {
+      return { id: rows[0].id, type: 'direct' };
+    }
+    return this.createDirect(userA, userB);
   }
 
   /** Create a 1:1 conversation between two users */

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ConversationsService } from './conversations.service';
 
@@ -10,6 +10,11 @@ export class ConversationsController {
   @Get('conversations')
   list(@Request() req: any) {
     return this.svc.list(req.user.userId);
+  }
+
+  @Post('conversations/direct/:targetUserId')
+  getOrCreateDirect(@Request() req: any, @Param('targetUserId') targetUserId: string) {
+    return this.svc.findOrCreateDirect(req.user.userId, targetUserId);
   }
 
   @Get('sync')
