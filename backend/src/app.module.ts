@@ -20,7 +20,7 @@ import { RedisModule } from './redis/redis.module';
       type: 'postgres',
       url: process.env.DATABASE_URL,
       autoLoadEntities: true,
-      synchronize: process.env.NODE_ENV !== 'production', // migrations in prod
+      synchronize: process.env.DB_SYNC === 'true', // set DB_SYNC=true once to create tables, then unset it
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
