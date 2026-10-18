@@ -33,15 +33,7 @@ export class ConversationsService {
           WHERE m.conversation_id = c.id AND m.deleted_for_all = false
           ORDER BY m.created_at DESC LIMIT 1
         ) AS last_message,
-        (
-          SELECT COUNT(*)::int
-          FROM messages m
-          LEFT JOIN message_receipts r ON r.message_id = m.id AND r.user_id = $1
-          WHERE m.conversation_id = c.id
-            AND m.deleted_for_all = false
-            AND m.sender_id != $1
-            AND r.read_at IS NULL
-        ) AS unread_count
+        0 AS unread_count
       FROM conversations c
       JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = $1
       LEFT JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id != $1
