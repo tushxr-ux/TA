@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { API_URL } from "@/lib/api";
 import styles from "../auth.module.css";
 
 export default function RegisterPage() {
@@ -16,20 +17,29 @@ export default function RegisterPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+      const res = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
         credentials: "include",
       });
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const data = await res.json();
-        setError(data?.error?.message ?? "Registration failed");
+        const msg = Array.isArray(data?.message)
+          ? data.message.join(", ")
+          : data?.message || data?.error?.message || "Registration failed";
+        setError(msg);
       } else {
+        if (data?.access_token) {
+          localStorage.setItem("access_token", data.access_token);
+        }
+        if (data?.refresh_token) {
+          localStorage.setItem("refresh_token", data.refresh_token);
+        }
         window.location.href = "/chat";
       }
-    } catch {
-      setError("Network error. Please try again.");
+    } catch (err: any) {
+      setError(err?.message ? `Network error: ${err.message}` : "Network error. Please try again.");
     } finally {
       setLoading(false);
     }

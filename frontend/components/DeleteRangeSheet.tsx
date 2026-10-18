@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { API_URL } from "@/lib/api";
 import styles from "./DeleteRangeSheet.module.css";
 
 interface Props {
@@ -30,7 +31,7 @@ export default function DeleteRangeSheet({ conversationId, onClose, onDeleted }:
     setLoadingSize(true);
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/conversations/${conversationId}/messages/size?from=${from}&to=${to}`,
+        `${API_URL}/conversations/${conversationId}/messages/size?from=${from}&to=${to}`,
         { credentials: "include" }
       );
       const data = await res.json();
@@ -44,7 +45,7 @@ export default function DeleteRangeSheet({ conversationId, onClose, onDeleted }:
     setDeleting(true);
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/conversations/${conversationId}/messages?from=${from}&to=${to}&deleteMedia=${!keepMedia}`,
+        `${API_URL}/conversations/${conversationId}/messages?from=${from}&to=${to}&deleteMedia=${!keepMedia}`,
         { method: "DELETE", credentials: "include" }
       );
       const data = await res.json();

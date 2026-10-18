@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import QRCode from "qrcode";
+import { API_URL } from "@/lib/api";
 import styles from "./page.module.css";
 
 interface ContactRequest { id: string; fromUserId: string; status: string; createdAt: string; }
@@ -13,7 +14,7 @@ export default function ContactsPage() {
   const [tab, setTab] = useState<"code" | "add" | "requests">("code");
   const [toast, setToast] = useState("");
   const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-  const API = process.env.NEXT_PUBLIC_API_URL;
+  const API = API_URL;
 
   useEffect(() => { fetchCode(); fetchRequests(); }, []);
 

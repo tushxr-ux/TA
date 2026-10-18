@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
+import { SOCKET_URL } from "@/lib/api";
 
 let socket: Socket | null = null;
 
@@ -13,9 +14,9 @@ export function useSocket(token: string | null) {
     // Reuse existing connection if token unchanged
     if (socketRef.current?.connected) return;
 
-    const s = io(process.env.NEXT_PUBLIC_API_URL!, {
+    const s = io(SOCKET_URL, {
       auth: { token },
-      transports: ["websocket"],
+      transports: ["websocket", "polling"],
       autoConnect: true,
     });
 

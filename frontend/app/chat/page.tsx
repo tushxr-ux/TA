@@ -4,6 +4,7 @@ import { useSocket } from "@/hooks/useSocket";
 import ChatBubble, { Message } from "@/components/ChatBubble";
 import DeleteRangeSheet from "@/components/DeleteRangeSheet";
 import Toast from "@/components/Toast";
+import { API_URL } from "@/lib/api";
 import styles from "./page.module.css";
 
 const MOCK_USER_ID = "me"; // replaced by real JWT userId in Phase 1.3
@@ -86,7 +87,7 @@ export default function ChatPage() {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/media/upload-url`, {
+    const res = await fetch(`${API_URL}/media/upload-url`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ mime: file.type, size: file.size }),
