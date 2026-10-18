@@ -1,0 +1,72 @@
+.wrap {
+  display: flex;
+  margin-bottom: 4px;
+  padding: 0 8px;
+}
+
+.mine   { justify-content: flex-end; }
+.theirs { justify-content: flex-start; }
+
+.bubble {
+  max-width: 75%;
+  padding: 8px 12px;
+  border-radius: 18px;
+  position: relative;
+}
+
+.bubbleMine {
+  background: linear-gradient(135deg, #e879a0, #a78bfa);
+  border-bottom-right-radius: 4px;
+  color: #fff;
+}
+
+.bubbleTheirs {
+  background: var(--surface2);
+  border-bottom-left-radius: 4px;
+  color: var(--text);
+}
+
+.text {
+  font-size: 0.95rem;
+  line-height: 1.45;
+  word-break: break-word;
+  margin: 0;
+}
+
+.mediaImg {
+  width: 100%;
+  max-width: 260px;
+  border-radius: 12px;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.audio {
+  width: 100%;
+  max-width: 240px;
+  height: 36px;
+  margin-bottom: 4px;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+  margin-top: 3px;
+}
+
+.time {
+  font-size: 0.68rem;
+  opacity: 0.65;
+}
+
+.status {
+  font-size: 0.72rem;
+  opacity: 0.65;
+}
+
+.statusRead {
+  color: #60a5fa;
+  opacity: 1;
+}

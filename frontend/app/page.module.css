@@ -1,0 +1,88 @@
+.main {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.glow {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(167,139,250,0.18) 0%, transparent 70%);
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+}
+
+.logo { margin-bottom: 4px; }
+
+.logoImg {
+  border-radius: 20px;
+  box-shadow: 0 12px 40px rgba(232,121,160,0.35);
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #e879a0, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.tagline {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  margin-top: 12px;
+}
+
+.btnPrimary, .btnSecondary {
+  display: block;
+  width: 100%;
+  padding: 16px;
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.btnPrimary {
+  background: linear-gradient(135deg, #e879a0, #a78bfa);
+  color: #fff;
+}
+
+.btnSecondary {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btnPrimary:active, .btnSecondary:active {
+  opacity: 0.85;
+  transform: scale(0.98);
+}
