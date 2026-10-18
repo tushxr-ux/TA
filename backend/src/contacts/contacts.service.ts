@@ -31,20 +31,45 @@ export class ContactsService {
     const already = await this.contacts.findOne({ where: { userId: fromUserId, contactId: target.id } });
     if (already && !already.blocked) throw new BadRequestException({ error: { code: 'ALREADY_CONTACTS', message: 'Already contacts' } });
 
+    // If target user already sent a pending request to fromUserId, automatically accept it!
+    const inverse = await this.requests.findOne({ where: { fromUserId: target.id, toUserId: fromUserId, status: 'pending' } });
+    if (inverse) {
+      await this.acceptRequest(inverse.id, fromUserId);
+      return { requestId: inverse.id, status: 'accepted', autoAccepted: true };
+    }
+
     // Upsert request
     const existing = await this.requests.findOne({ where: { fromUserId, toUserId: target.id } });
     if (existing) {
       await this.requests.update(existing.id, { status: 'pending' });
-      return { requestId: existing.id };
+      return { requestId: existing.id, status: 'pending' };
     }
 
     const req = this.requests.create({ fromUserId, toUserId: target.id });
     await this.requests.save(req);
-    return { requestId: req.id };
+    return { requestId: req.id, status: 'pending' };
   }
 
   async getRequests(userId: string) {
-    return this.requests.find({ where: [{ toUserId: userId, status: 'pending' }, { fromUserId: userId }] });
+    const list = await this.requests.find({
+      where: [
+        { toUserId: userId, status: 'pending' },
+      ],
+      order: { createdAt: 'DESC' },
+    });
+    if (!list.length) return [];
+    const fromIds = list.map(r => r.fromUserId);
+    const users = await this.users.find({ where: { id: In(fromIds) } });
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    return list.map(r => {
+      const u = userMap.get(r.fromUserId);
+      return {
+        ...r,
+        fromName: u?.displayName || u?.username || 'Partner',
+        fromUsername: u?.username,
+      };
+    });
   }
 
   async acceptRequest(requestId: string, userId: string) {
