@@ -4,18 +4,18 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, PrimaryColumn
 export class Conversation {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ default: 'direct' }) type: string;
-  @Column('uuid', { nullable: true }) createdBy: string;
-  @Column({ nullable: true }) disappearingSeconds: number;
-  @CreateDateColumn() createdAt: Date;
+  @Column({ name: 'created_by', type: 'uuid', nullable: true }) createdBy: string;
+  @Column({ name: 'disappearing_seconds', nullable: true }) disappearingSeconds: number;
+  @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }
 
 @Entity('conversation_members')
 export class ConversationMember {
-  @PrimaryColumn('uuid') conversationId: string;
-  @PrimaryColumn('uuid') userId: string;
-  @Column({ nullable: true }) mutedUntil: Date;
+  @PrimaryColumn({ name: 'conversation_id', type: 'uuid' }) conversationId: string;
+  @PrimaryColumn({ name: 'user_id', type: 'uuid' }) userId: string;
+  @Column({ name: 'muted_until', nullable: true }) mutedUntil: Date;
   @Column({ default: false }) archived: boolean;
   @Column({ default: false }) pinned: boolean;
-  @Column({ nullable: true }) lastReadMessageId: string;
-  @CreateDateColumn() joinedAt: Date;
+  @Column({ name: 'last_read_message_id', nullable: true }) lastReadMessageId: string;
+  @CreateDateColumn({ name: 'joined_at' }) joinedAt: Date;
 }
