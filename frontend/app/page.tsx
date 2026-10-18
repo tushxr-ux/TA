@@ -1,7 +1,17 @@
+"use client";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./page.module.css";
 import Link from "next/link";
 
 export default function Home() {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && localStorage.getItem("access_token")) {
+      router.replace("/chat");
+    }
+  }, [router]);
   return (
     <main className={styles.main}>
       <div className={styles.glow} aria-hidden />
