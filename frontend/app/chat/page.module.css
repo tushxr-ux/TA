@@ -143,6 +143,121 @@
   color: #8696a0;
 }
 
+/* ── Incoming Contact Requests Section ───────────────────────────────────── */
+.requestsSection {
+  padding: 8px 12px;
+  background: #111b21;
+}
+
+.requestCard {
+  background: linear-gradient(135deg, rgba(0, 168, 132, 0.12) 0%, rgba(32, 44, 51, 0.95) 100%);
+  border: 1px solid rgba(0, 168, 132, 0.35);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  margin-bottom: 8px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.requestCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.requestBadgeTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #00a884;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.requestItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.requestInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.requestName {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e9edef;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.requestSub {
+  font-size: 0.78rem;
+  color: #8696a0;
+}
+
+.requestActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.acceptBtn {
+  background: #00a884;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.acceptBtn:hover {
+  opacity: 0.92;
+}
+
+.acceptBtn:active {
+  transform: scale(0.96);
+}
+
+.declineBtn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #8696a0;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.declineBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #e9edef;
+}
+
+.badgeCount {
+  background: #00a884;
+  color: #111b21;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 6px;
+  min-width: 18px;
+  text-align: center;
+  margin-left: 6px;
+}
+
 /* ── Chats List ──────────────────────────────────────────────────────────── */
 .chatList {
   flex: 1;

@@ -18,36 +18,70 @@ export class ContactsService {
     return createHash('sha256').update(val.toUpperCase()).digest('hex');
   }
 
-  /** Submit a contact request using the other user's personal code */
+  /** Submit a contact request using the other user's personal code or username */
   async requestByCode(fromUserId: string, code: string) {
-    const hash = this.sha256(code);
-    const target = await this.users.findOne({ where: { contactCodeHash: hash, isActive: true } });
+    const raw = (code || '').trim();
+    if (!raw) {
+      throw new BadRequestException({ error: { code: 'INVALID_CODE', message: 'Please enter a secret code or username' } });
+    }
 
-    // Generic error — never reveal whether code exists (SECURITY.md §4)
-    if (!target) throw new BadRequestException({ error: { code: 'INVALID_CODE', message: 'Invalid or expired code' } });
-    if (target.id === fromUserId) throw new BadRequestException({ error: { code: 'SELF_REQUEST', message: 'Cannot add yourself' } });
+    const hash = this.sha256(raw);
+    let target = await this.users.findOne({ where: { contactCodeHash: hash, isActive: true } });
+
+    // Also support finding by username (with or without @)
+    if (!target) {
+      const cleanUsername = raw.replace(/^@/, '').toLowerCase();
+      target = await this.users.createQueryBuilder('u')
+        .where('LOWER(u.username) = :uname AND u.isActive = true', { uname: cleanUsername })
+        .getOne();
+    }
+
+    if (!target) {
+      throw new BadRequestException({ error: { code: 'INVALID_CODE', message: 'User or secret code not found' } });
+    }
+    if (target.id === fromUserId) {
+      throw new BadRequestException({ error: { code: 'SELF_REQUEST', message: 'Cannot add yourself' } });
+    }
 
     // Already contacts?
     const already = await this.contacts.findOne({ where: { userId: fromUserId, contactId: target.id } });
-    if (already && !already.blocked) throw new BadRequestException({ error: { code: 'ALREADY_CONTACTS', message: 'Already contacts' } });
+    if (already && !already.blocked) {
+      throw new BadRequestException({ error: { code: 'ALREADY_CONTACTS', message: 'Already connected as contacts' } });
+    }
 
     // If target user already sent a pending request to fromUserId, automatically accept it!
     const inverse = await this.requests.findOne({ where: { fromUserId: target.id, toUserId: fromUserId, status: 'pending' } });
     if (inverse) {
       await this.acceptRequest(inverse.id, fromUserId);
-      return { requestId: inverse.id, status: 'accepted', autoAccepted: true };
+      return {
+        requestId: inverse.id,
+        status: 'accepted',
+        autoAccepted: true,
+        targetName: target.displayName || target.username,
+        targetUsername: target.username,
+      };
     }
 
     // Upsert request
     const existing = await this.requests.findOne({ where: { fromUserId, toUserId: target.id } });
     if (existing) {
       await this.requests.update(existing.id, { status: 'pending' });
-      return { requestId: existing.id, status: 'pending' };
+      return {
+        requestId: existing.id,
+        status: 'pending',
+        targetName: target.displayName || target.username,
+        targetUsername: target.username,
+      };
     }
 
     const req = this.requests.create({ fromUserId, toUserId: target.id });
     await this.requests.save(req);
-    return { requestId: req.id, status: 'pending' };
+    return {
+      requestId: req.id,
+      status: 'pending',
+      targetName: target.displayName || target.username,
+      targetUsername: target.username,
+    };
   }
 
   async getRequests(userId: string) {
@@ -83,6 +117,28 @@ export class ContactsService {
         { userId: req.toUserId, contactId: req.fromUserId },
         { userId: req.fromUserId, contactId: req.toUserId },
       ], ['userId', 'contactId']);
+
+      // Ensure a direct conversation exists between the two users
+      const existingConv = await em.query(`
+        SELECT cm1.conversation_id FROM conversation_members cm1
+        JOIN conversation_members cm2 ON cm1.conversation_id = cm2.conversation_id
+        WHERE cm1.user_id = $1 AND cm2.user_id = $2
+        LIMIT 1
+      `, [req.toUserId, req.fromUserId]);
+
+      if (!existingConv || existingConv.length === 0) {
+        const convRes = await em.query(`
+          INSERT INTO conversations (type, created_by)
+          VALUES ('direct', $1)
+          RETURNING id
+        `, [req.toUserId]);
+        if (convRes && convRes[0]?.id) {
+          await em.query(`
+            INSERT INTO conversation_members (conversation_id, user_id)
+            VALUES ($1, $2), ($1, $3)
+          `, [convRes[0].id, req.toUserId, req.fromUserId]);
+        }
+      }
     });
 
     return { accepted: true };

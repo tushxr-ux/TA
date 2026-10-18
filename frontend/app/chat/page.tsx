@@ -43,6 +43,14 @@ interface ChatItem {
   unreadCount?: number;
 }
 
+interface ContactRequestItem {
+  id: string;
+  fromUserId: string;
+  fromName: string;
+  fromUsername?: string;
+  createdAt: string;
+}
+
 export default function ChatPage() {
   const router = useRouter();
 
@@ -52,6 +60,7 @@ export default function ChatPage() {
 
   // Chats & Contacts
   const [chats, setChats] = useState<ChatItem[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<ContactRequestItem[]>([]);
   const [activeChat, setActiveChat] = useState<ChatItem | null>(null);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -124,7 +133,19 @@ export default function ChatPage() {
 
         const data = await res.json();
         setMe(data);
-        if (data.contactCode) setMyContactCode(data.contactCode);
+        if (data.contactCode) {
+          setMyContactCode(data.contactCode);
+        } else {
+          try {
+            const codeRes = await fetch(`${API_URL}/me/contact-code`, {
+              headers: { Authorization: `Bearer ${storedToken}` },
+            });
+            if (codeRes.ok) {
+              const codeData = await codeRes.json();
+              if (codeData.code) setMyContactCode(codeData.code);
+            }
+          } catch {}
+        }
       } catch {
         // network temporary fallback
       }
@@ -195,11 +216,64 @@ export default function ChatPage() {
     }
   }, [token]);
 
+  // ── Fetch Incoming Contact Requests ───────────────────────────────────────
+  const fetchRequests = useCallback(async () => {
+    const curToken = token || localStorage.getItem("access_token");
+    if (!curToken) return;
+    try {
+      const res = await fetch(`${API_URL}/contacts/requests`, {
+        headers: { Authorization: `Bearer ${curToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setIncomingRequests(data);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch requests:", err);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (token) {
       loadChatsAndContacts();
+      fetchRequests();
+      const interval = setInterval(() => {
+        loadChatsAndContacts();
+        fetchRequests();
+      }, 5000);
+      return () => clearInterval(interval);
     }
-  }, [token, loadChatsAndContacts]);
+  }, [token, loadChatsAndContacts, fetchRequests]);
+
+  const acceptContactRequest = async (requestId: string, fromName: string) => {
+    const curToken = token || localStorage.getItem("access_token");
+    try {
+      const res = await fetch(`${API_URL}/contacts/requests/${requestId}/accept`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${curToken}` },
+      });
+      if (res.ok) {
+        setToast(`Connected with ${fromName}!`);
+        await fetchRequests();
+        await loadChatsAndContacts();
+      }
+    } catch {
+      setToast("Failed to accept request.");
+    }
+  };
+
+  const rejectContactRequest = async (requestId: string) => {
+    const curToken = token || localStorage.getItem("access_token");
+    try {
+      await fetch(`${API_URL}/contacts/requests/${requestId}/reject`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${curToken}` },
+      });
+      await fetchRequests();
+    } catch {}
+  };
 
   // ── Fetch Message History ─────────────────────────────────────────────────
   const fetchMessages = useCallback(async (convId: string) => {
@@ -457,12 +531,17 @@ export default function ChatPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        setToast(data?.error?.message || data?.message || "Failed to add contact");
+        setToast(data?.error?.message || data?.message || "Failed to add partner");
       } else {
-        setToast("Contact request sent!");
+        if (data?.autoAccepted) {
+          setToast(`Connected with ${data.targetName || "partner"}!`);
+        } else {
+          setToast(`Request sent to ${data?.targetName || "partner"}!`);
+        }
         setShowAddModal(false);
         setNewContactCode("");
-        loadChatsAndContacts();
+        await fetchRequests();
+        await loadChatsAndContacts();
       }
     } catch {
       setToast("Network error. Please try again.");
@@ -522,11 +601,30 @@ export default function ChatPage() {
             </button>
             <button
               className={styles.iconBtn}
-              title="Add Contact"
-              aria-label="Add Contact"
+              title={incomingRequests.length > 0 ? `Incoming Requests (${incomingRequests.length})` : "Add Partner"}
+              aria-label="Add Partner"
+              style={{ position: "relative" }}
               onClick={() => setShowAddModal(true)}
             >
-              <IconUserPlus size={20} />
+              <IconUserPlus size={20} color={incomingRequests.length > 0 ? "#00a884" : "#aebac1"} />
+              {incomingRequests.length > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: "4px",
+                    right: "4px",
+                    background: "#25d366",
+                    color: "#111b21",
+                    fontSize: "0.65rem",
+                    fontWeight: 700,
+                    borderRadius: "10px",
+                    padding: "1px 5px",
+                    lineHeight: 1,
+                  }}
+                >
+                  {incomingRequests.length}
+                </span>
+              )}
             </button>
             <button
               className={styles.iconBtn}
@@ -556,6 +654,48 @@ export default function ChatPage() {
             />
           </div>
         </div>
+
+        {/* ── Incoming Partner Requests Section ──────────────────────────── */}
+        {incomingRequests.length > 0 && (
+          <div className={styles.requestsSection}>
+            <div className={styles.requestCardHeader}>
+              <span className={styles.requestBadgeTitle}>
+                <span>📩</span> Partner Request ({incomingRequests.length})
+              </span>
+            </div>
+            {incomingRequests.map(req => (
+              <div key={req.id} className={styles.requestCard}>
+                <div className={styles.requestItem}>
+                  <div className={styles.avatarWrap}>
+                    <div className={styles.avatar}>
+                      {(req.fromName || "P").charAt(0).toUpperCase()}
+                    </div>
+                  </div>
+                  <div className={styles.requestInfo}>
+                    <div className={styles.requestName}>{req.fromName}</div>
+                    <div className={styles.requestSub}>
+                      {req.fromUsername ? `@${req.fromUsername} ` : ""}wants to connect
+                    </div>
+                    <div className={styles.requestActions}>
+                      <button
+                        className={styles.acceptBtn}
+                        onClick={() => acceptContactRequest(req.id, req.fromName)}
+                      >
+                        ✓ Accept
+                      </button>
+                      <button
+                        className={styles.declineBtn}
+                        onClick={() => rejectContactRequest(req.id)}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Chats List */}
         <div className={styles.chatList} role="list">
@@ -771,7 +911,7 @@ export default function ChatPage() {
         )}
       </main>
 
-      {/* ── Add Contact Modal ────────────────────────────────────────────────── */}
+      {/* ── Add Partner Modal ────────────────────────────────────────────────── */}
       {showAddModal && (
         <div className={styles.modalOverlay} onClick={() => setShowAddModal(false)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -779,27 +919,83 @@ export default function ChatPage() {
               <h3 className={styles.modalTitle}>Add Partner</h3>
               <button className={styles.closeBtn} onClick={() => setShowAddModal(false)}>✕</button>
             </div>
-            <form onSubmit={handleAddContact} className={styles.modalBody}>
-              <p className={styles.modalHint}>
-                Enter your partner&apos;s 10-character secret code to connect:
-              </p>
-              <input
-                type="text"
-                maxLength={12}
-                placeholder="e.g. 7K2M9XPQ4W"
-                className={styles.modalInput}
-                value={newContactCode}
-                onChange={e => setNewContactCode(e.target.value.toUpperCase())}
-                autoFocus
-              />
-              <button
-                type="submit"
-                className={styles.modalBtn}
-                disabled={addLoading || !newContactCode.trim()}
-              >
-                {addLoading ? "Connecting…" : "Send Contact Request"}
-              </button>
-            </form>
+            <div className={styles.modalBody}>
+              {/* Show incoming requests inside modal too */}
+              {incomingRequests.length > 0 && (
+                <div style={{ marginBottom: "16px", padding: "12px", background: "rgba(0, 168, 132, 0.12)", border: "1px solid rgba(0, 168, 132, 0.4)", borderRadius: "8px" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#00a884", marginBottom: "8px", textTransform: "uppercase" }}>
+                    📩 Pending Partner Requests ({incomingRequests.length})
+                  </div>
+                  {incomingRequests.map(req => (
+                    <div key={req.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginTop: "6px" }}>
+                      <div>
+                        <div style={{ color: "#e9edef", fontWeight: 600, fontSize: "0.9rem" }}>{req.fromName}</div>
+                        <div style={{ color: "#8696a0", fontSize: "0.75rem" }}>
+                          {req.fromUsername ? `@${req.fromUsername}` : "Wants to connect"}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button
+                          className={styles.acceptBtn}
+                          style={{ padding: "5px 12px", fontSize: "0.8rem" }}
+                          onClick={() => {
+                            acceptContactRequest(req.id, req.fromName);
+                            setShowAddModal(false);
+                          }}
+                        >
+                          ✓ Accept
+                        </button>
+                        <button
+                          className={styles.declineBtn}
+                          style={{ padding: "5px 10px", fontSize: "0.8rem" }}
+                          onClick={() => rejectContactRequest(req.id)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <form onSubmit={handleAddContact}>
+                <p className={styles.modalHint}>
+                  Enter your partner&apos;s <strong>Secret Code</strong> or <strong>Username</strong>:
+                </p>
+                <input
+                  type="text"
+                  maxLength={32}
+                  placeholder="e.g. 7K2M9XPQ4W or username"
+                  className={styles.modalInput}
+                  value={newContactCode}
+                  onChange={e => setNewContactCode(e.target.value)}
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  className={styles.modalBtn}
+                  disabled={addLoading || !newContactCode.trim()}
+                >
+                  {addLoading ? "Connecting…" : "Send Partner Request"}
+                </button>
+              </form>
+
+              <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid rgba(134, 150, 160, 0.15)", textAlign: "center" }}>
+                <span style={{ fontSize: "0.78rem", color: "#8696a0" }}>Your Secret Code: </span>
+                <strong
+                  style={{ color: "#00a884", letterSpacing: "1px", cursor: "pointer", marginLeft: "4px" }}
+                  onClick={copyMyCode}
+                  title="Click to copy"
+                >
+                  {myContactCode || "Loading…"} 📋
+                </strong>
+                {me?.username && (
+                  <div style={{ fontSize: "0.75rem", color: "#8696a0", marginTop: "4px" }}>
+                    Or tell your partner your username: <span style={{ color: "#e9edef", fontWeight: 600 }}>@{me.username}</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
