@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Conversation, ConversationMember } from './conversations.entities';
 
 @Injectable()
@@ -53,17 +53,18 @@ export class ConversationsService {
 
   /** Find existing 1:1 conversation or create a new direct conversation */
   async findOrCreateDirect(userA: string, userB: string) {
-    const rows = await this.convs.query(`
-      SELECT c.id
-      FROM conversations c
-      JOIN conversation_members cm1 ON cm1.conversation_id = c.id AND cm1.user_id = $1
-      JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id = $2
-      WHERE c.type = 'direct'
-      LIMIT 1
-    `, [userA, userB]);
-
-    if (rows && rows.length > 0) {
-      return { id: rows[0].id, type: 'direct' };
+    const myMemberships = await this.members.find({ where: { userId: userA } });
+    if (myMemberships.length > 0) {
+      const convIds = myMemberships.map(m => m.conversationId);
+      const shared = await this.members.findOne({
+        where: {
+          conversationId: In(convIds),
+          userId: userB,
+        },
+      });
+      if (shared) {
+        return { id: shared.conversationId, type: 'direct' };
+      }
     }
     return this.createDirect(userA, userB);
   }
