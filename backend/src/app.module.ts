@@ -14,14 +14,19 @@ import { AdminModule } from './admin/admin.module';
 import { PushModule } from './push/push.module';
 import { RedisModule } from './redis/redis.module';
 
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
 @Module({
   imports: [
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
       autoLoadEntities: true,
-      synchronize: process.env.NODE_ENV !== 'production', // migrations in prod
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      synchronize: true, // auto-sync schema
+      ssl: process.env.DATABASE_URL?.includes('sslmode=require') || process.env.DATABASE_SSL === 'true'
+        ? { rejectUnauthorized: false }
+        : false,
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     ScheduleModule.forRoot(),
@@ -41,5 +46,7 @@ import { RedisModule } from './redis/redis.module';
     AdminModule,
     PushModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
