@@ -34,6 +34,9 @@ export class MessagesService {
       return {
         ...m,
         body: bodyStr,
+        status: m.status || 'sent',
+        reactions: m.reactions || {},
+        editedAt: m.editedAt || null,
       };
     });
   }
@@ -110,5 +113,15 @@ export class MessagesService {
       await this.msgs.update({ id: messageId, senderId: userId }, { deletedForAll: true });
     }
     // "me" scope: client hides it locally — no server action needed for E2EE model
+  }
+
+  /** Single message edit */
+  async editOne(messageId: string, userId: string, newBody: string) {
+    const msg = await this.msgs.findOne({ where: { id: messageId, senderId: userId } });
+    if (!msg) throw new ForbiddenException('Message not found or not owned by user');
+    msg.body = Buffer.from(newBody, 'utf8');
+    msg.editedAt = new Date();
+    await this.msgs.save(msg);
+    return { id: msg.id, body: newBody, editedAt: msg.editedAt };
   }
 }

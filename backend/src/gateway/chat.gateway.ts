@@ -75,6 +75,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.redis.setex(`presence:${userId}`, 60, '1');
   }
 
+  @SubscribeMessage('presence:check')
+  async onPresenceCheck(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() data: { userId: string },
+  ) {
+    if (data?.userId) {
+      const isOnline = await this.redis.get(`presence:${data.userId}`);
+      socket.emit('presence', { userId: data.userId, online: Boolean(isOnline) });
+    }
+  }
+
   @SubscribeMessage('conversation:join')
   async onJoinConversation(
     @ConnectedSocket() socket: Socket,
@@ -153,10 +164,48 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: string; messageId: string; emoji: string },
   ) {
     if (data?.conversationId && data?.messageId) {
+      const userId = socket.data.userId;
+      const msg = await this.msgs.findOne({ where: { id: data.messageId } });
+      const currentReactions: Record<string, string> = { ...(msg?.reactions || {}) };
+
+      if (data.emoji) {
+        if (currentReactions[userId] === data.emoji) {
+          delete currentReactions[userId];
+        } else {
+          currentReactions[userId] = data.emoji;
+        }
+      } else {
+        delete currentReactions[userId];
+      }
+
+      if (msg) {
+        await this.msgs.update({ id: data.messageId }, { reactions: currentReactions });
+      }
+
       this.server.to(data.conversationId).emit('message:reacted', {
         messageId: data.messageId,
-        userId: socket.data.userId,
-        emoji: data.emoji,
+        userId,
+        emoji: currentReactions[userId] || null,
+        reactions: currentReactions,
+      });
+    }
+  }
+
+  @SubscribeMessage('message:edit')
+  async onMessageEdit(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() data: { conversationId: string; messageId: string; body: string },
+  ) {
+    if (data?.conversationId && data?.messageId && typeof data?.body === 'string') {
+      const now = new Date();
+      await this.msgs.update(
+        { id: data.messageId, senderId: socket.data.userId },
+        { body: Buffer.from(data.body, 'utf8'), editedAt: now },
+      );
+      this.server.to(data.conversationId).emit('message:edited', {
+        messageId: data.messageId,
+        body: data.body,
+        editedAt: now.toISOString(),
       });
     }
   }
@@ -167,8 +216,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { messageId: string },
   ) {
     const userId = socket.data.userId as string;
+    if (!data?.messageId) return;
     await this.redis.hset(`receipt:${data.messageId}`, userId, 'delivered');
-    this.server.emit('message:status', { messageId: data.messageId, userId, status: 'delivered' });
+    const msg = await this.msgs.findOne({ where: { id: data.messageId } });
+    if (msg && msg.senderId !== userId) {
+      if (msg.status !== 'read') {
+        await this.msgs.update({ id: data.messageId }, { status: 'delivered' });
+      }
+      this.server.to(msg.senderId).emit('message:status', {
+        messageId: data.messageId,
+        userId,
+        status: 'delivered',
+      });
+    }
   }
 
   @SubscribeMessage('message:read')
@@ -177,12 +237,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: string; upToMessageId: string },
   ) {
     const userId = socket.data.userId as string;
+    if (!data?.upToMessageId || !data?.conversationId) return;
     await this.redis.hset(`receipt:${data.upToMessageId}`, userId, 'read');
-    this.server.to(data.conversationId).emit('message:status', {
-      messageId: data.upToMessageId,
-      userId,
-      status: 'read',
-    });
+    const targetMsg = await this.msgs.findOne({ where: { id: data.upToMessageId } });
+    if (targetMsg && targetMsg.senderId !== userId) {
+      await this.msgs.createQueryBuilder()
+        .update(Message)
+        .set({ status: 'read' })
+        .where('conversationId = :cid', { cid: data.conversationId })
+        .andWhere('senderId = :partnerId', { partnerId: targetMsg.senderId })
+        .andWhere('createdAt <= :upTo', { upTo: targetMsg.createdAt })
+        .execute();
+
+      this.server.to(targetMsg.senderId).emit('message:status', {
+        messageId: data.upToMessageId,
+        conversationId: data.conversationId,
+        userId,
+        status: 'read',
+      });
+    }
   }
 
   // ── Typing ────────────────────────────────────────────────────────────────

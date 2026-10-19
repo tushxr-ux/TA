@@ -1,4 +1,4 @@
-import { Controller, Get, Delete, Query, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Delete, Patch, Query, Param, Body, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { MessagesService } from './messages.service';
 
@@ -48,5 +48,15 @@ export class MessagesController {
     @Query('scope') scope: 'me' | 'all' = 'me',
   ) {
     return this.msgs.deleteOne(msgId, req.user.userId, scope);
+  }
+
+  /** Single message edit */
+  @Patch('messages/:id')
+  editOne(
+    @Param('id') msgId: string,
+    @Request() req: { user: { userId: string } },
+    @Body('body') body: string,
+  ) {
+    return this.msgs.editOne(msgId, req.user.userId, body);
   }
 }

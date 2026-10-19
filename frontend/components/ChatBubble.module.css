@@ -333,28 +333,84 @@
 
 .emojiClose:hover { color: #eeeef4; }
 
+/* ── Bubble Column & Swipe ─────────────────────────────────────────────── */
+.bubbleCol {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 82%;
+  touch-action: pan-y;
+}
+
+.colMine   { align-items: flex-end; }
+.colTheirs { align-items: flex-start; }
+
+.swipeReplyIcon {
+  position: absolute;
+  right: -38px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: background 0.15s ease, opacity 0.12s ease;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+
+.editedTag {
+  font-size: 0.68rem;
+  color: #8696a0;
+  font-style: italic;
+  margin-right: 4px;
+}
+
 /* ── Reaction chips ────────────────────────────────────────────────────────── */
 .reactionRow {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 4px;
-  padding: 0 8px;
+  margin-top: 2px;
+  padding: 0 2px;
+  z-index: 2;
 }
 
 .reactionMine { justify-content: flex-end; }
+.reactionTheirs { justify-content: flex-start; }
 
 .reactionChip {
-  background: rgba(167,139,250,0.15);
-  border: 1px solid rgba(167,139,250,0.25);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #202c33;
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 12px;
-  padding: 2px 8px;
-  font-size: 0.82rem;
+  padding: 2px 7px;
+  font-size: 0.8rem;
+  color: #e9edef;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: transform 0.1s, background 0.15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 
-.reactionChip:hover { background: rgba(167,139,250,0.25); }
+.reactionChip:hover {
+  background: #2a3942;
+  transform: scale(1.08);
+}
+
+.reactionChip:active {
+  transform: scale(0.95);
+}
+
+.reactionCount {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #8696a0;
+}
 
 /* ── Reply preview inside bubble ──────────────────────────────────────────── */
 .replyPreview {

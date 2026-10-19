@@ -14,6 +14,8 @@ export class Message {
   @Column({ name: 'deleted_for_all', default: false }) deletedForAll: boolean;
   @Column({ name: 'expires_at', nullable: true }) expiresAt: Date;
   @Column({ name: 'edited_at', nullable: true }) editedAt: Date;
+  @Column({ default: 'sent' }) status: string;
+  @Column({ type: 'jsonb', nullable: true, default: () => "'{}'" }) reactions: Record<string, string>;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 
   mediaSizeBytes?: number;

@@ -18,7 +18,6 @@ import {
   IconLock,
   IconDownload,
   IconScreenShare,
-  IconEyeOnce,
 } from "@/components/Icons";
 import { API_URL } from "@/lib/api";
 import styles from "./page.module.css";
@@ -93,8 +92,9 @@ export default function ChatPage() {
   const [myContactCode, setMyContactCode] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
-  // Reply
+  // Reply & Edit
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
 
   // Profile panel & media/links
   const [showProfile, setShowProfile] = useState(false);
@@ -106,8 +106,14 @@ export default function ChatPage() {
   const [lightboxType, setLightboxType] = useState<"image" | "video">("image");
   const [lightboxZoom, setLightboxZoom] = useState(1);
 
-  // Send options
-  const [sendViewOnce, setSendViewOnce] = useState(false);
+  // Pre-send Media Preview (with "Send one time" option)
+  const [pendingMedia, setPendingMedia] = useState<{
+    file: File;
+    previewUrl: string;
+    mediaType: "image" | "video" | "audio";
+    isViewOnce: boolean;
+    caption: string;
+  } | null>(null);
 
   // Screen share & Live Camera
   const [sharing, setSharing] = useState(false);
@@ -336,7 +342,11 @@ export default function ChatPage() {
   const selectChat = async (item: ChatItem) => {
     setActiveChat(item);
     setPartnerTyping(false);
-    setPartnerOnline(true);
+    setPartnerOnline(false); // real-time check below
+
+    if (item.contactId) {
+      emit("presence:check", { userId: item.contactId });
+    }
 
     const curToken = token || localStorage.getItem("access_token");
     let convId = item.id;
@@ -377,6 +387,9 @@ export default function ChatPage() {
             return [...prev, msg as Message];
           });
           emit("message:delivered", { messageId: msg.id });
+          if (typeof document !== "undefined" && document.visibilityState === "visible") {
+            emit("message:read", { conversationId: activeConvId, upToMessageId: msg.id });
+          }
         }
 
         setChats(prev => prev.map(c => {
@@ -426,14 +439,27 @@ export default function ChatPage() {
       }),
 
       on("message:reacted", (d: any) => {
-        if (d?.messageId && d?.userId) {
+        if (d?.messageId) {
           setMessages(prev => prev.map(m => {
             if (m.id !== d.messageId) return m;
+            if (d.reactions) {
+              return { ...m, reactions: d.reactions };
+            }
             const reactions = { ...(m.reactions || {}) };
-            if (reactions[d.userId] === d.emoji) delete reactions[d.userId];
-            else reactions[d.userId] = d.emoji;
+            if (d.emoji && d.userId) reactions[d.userId] = d.emoji;
+            else if (d.userId) delete reactions[d.userId];
             return { ...m, reactions };
           }));
+        }
+      }),
+
+      on("message:edited", (d: any) => {
+        if (d?.messageId && typeof d?.body === "string") {
+          setMessages(prev => prev.map(m => (
+            m.id === d.messageId
+              ? { ...m, body: d.body, editedAt: d.editedAt || new Date().toISOString() }
+              : m
+          )));
         }
       }),
 
@@ -505,6 +531,37 @@ export default function ChatPage() {
   const sendMessage = useCallback(() => {
     if (!input.trim() || !activeConvId) return;
     const text = input.trim();
+
+    // Edit message flow
+    if (editingMessage) {
+      const targetId = editingMessage.id;
+      const newBody = text;
+      const nowIso = new Date().toISOString();
+
+      setMessages(prev => prev.map(m => m.id === targetId ? { ...m, body: newBody, editedAt: nowIso } : m));
+      setEditingMessage(null);
+      setInput("");
+      setTimeout(() => msgInputRef.current?.focus(), 0);
+      stopTyping();
+
+      emit("message:edit", {
+        conversationId: activeConvId,
+        messageId: targetId,
+        body: newBody,
+      });
+
+      const curToken = token || localStorage.getItem("access_token");
+      fetch(`${API_URL}/messages/${targetId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${curToken}`,
+        },
+        body: JSON.stringify({ body: newBody }),
+      }).catch(() => {});
+      return;
+    }
+
     const clientMsgId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const myId = me?.id || "me";
 
@@ -548,7 +605,7 @@ export default function ChatPage() {
       }
       return c;
     }));
-  }, [input, activeConvId, me, emit, replyTo]);
+  }, [input, activeConvId, me, emit, replyTo, editingMessage, token]);
 
   // ── Typing Indicator ──────────────────────────────────────────────────────
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -570,68 +627,89 @@ export default function ChatPage() {
     if (typingTimer.current) clearTimeout(typingTimer.current);
   };
 
-  // ── Media Send ────────────────────────────────────────────────────────────
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ── Media Selection & "Send One Time" Preview ────────────────────────────
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeConvId) return;
 
-    setUploadingMedia(true);
-    const clientMsgId = `${Date.now()}-media`;
-    const myId = me?.id || "me";
     const isAudio = file.type.startsWith("audio");
     const isVideo = file.type.startsWith("video");
-    const mediaType = isAudio ? "audio" : isVideo ? "video" : "image";
-    const capturedViewOnce = sendViewOnce && !isAudio;
+    const mediaType: "image" | "video" | "audio" = isAudio ? "audio" : isVideo ? "video" : "image";
 
     const reader = new FileReader();
-    reader.onload = async () => {
+    reader.onload = () => {
       const base64Str = reader.result as string;
+      setPendingMedia({
+        file,
+        previewUrl: base64Str,
+        mediaType,
+        isViewOnce: false,
+        caption: "",
+      });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsDataURL(file);
+  };
 
-      const optimistic: Message = {
-        id: clientMsgId,
-        senderId: myId,
+  const confirmSendMedia = async () => {
+    if (!pendingMedia || !activeConvId) return;
+    const { file, previewUrl, mediaType, isViewOnce, caption } = pendingMedia;
+    setPendingMedia(null);
+    setUploadingMedia(true);
+
+    const clientMsgId = `${Date.now()}-media`;
+    const myId = me?.id || "me";
+
+    const optimistic: Message = {
+      id: clientMsgId,
+      senderId: myId,
+      type: mediaType,
+      body: previewUrl,
+      mediaUrl: previewUrl,
+      createdAt: new Date().toISOString(),
+      status: "sent",
+      viewOnce: isViewOnce,
+    };
+    setMessages(prev => [...prev, optimistic]);
+
+    try {
+      const curToken = token || localStorage.getItem("access_token");
+      const res = await fetch(`${API_URL}/media/upload`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${curToken}`,
+        },
+        body: JSON.stringify({ file: previewUrl, mime: file.type }),
+      });
+
+      const uploadData = await res.json();
+      const uploadedUrl = uploadData.url || previewUrl;
+
+      emit("message:send", {
+        conversationId: activeConvId,
+        clientMsgId,
         type: mediaType,
-        body: base64Str,
-        mediaUrl: base64Str,
-        createdAt: new Date().toISOString(),
-        status: "sent",
-        viewOnce: capturedViewOnce,
-      };
-      setMessages(prev => [...prev, optimistic]);
+        mediaId: uploadData.mediaId || "inline",
+        body: uploadedUrl,
+        viewOnce: isViewOnce,
+      });
 
-      try {
-        const curToken = token || localStorage.getItem("access_token");
-        const res = await fetch(`${API_URL}/media/upload`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${curToken}`,
-          },
-          body: JSON.stringify({ file: base64Str, mime: file.type }),
-        });
-
-        const uploadData = await res.json();
-        const uploadedUrl = uploadData.url || base64Str;
-
+      if (caption.trim()) {
+        const textMsgId = `${Date.now()}-caption`;
         emit("message:send", {
           conversationId: activeConvId,
-          clientMsgId,
-          type: mediaType,
-          mediaId: uploadData.mediaId || "inline",
-          body: uploadedUrl,
-          viewOnce: capturedViewOnce,
+          clientMsgId: textMsgId,
+          type: "text",
+          body: caption.trim(),
         });
-      } catch (err) {
-        console.warn("Media upload error:", err);
-        setToast("Media sent with local preview.");
-      } finally {
-        setUploadingMedia(false);
-        setSendViewOnce(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
       }
-    };
-
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn("Media upload error:", err);
+      setToast("Media sent with local preview.");
+    } finally {
+      setUploadingMedia(false);
+    }
   };
 
   // ── Screen Share & Live Video ─────────────────────────────────────────────
@@ -807,24 +885,39 @@ export default function ChatPage() {
     }
   }, [token, activeConvId, emit]);
 
-  // ── Reply ─────────────────────────────────────────────────────────────────
+  // ── Reply & Edit ──────────────────────────────────────────────────────────
   const handleReply = useCallback((msg: Message) => {
     setReplyTo(msg);
+    setEditingMessage(null);
+    msgInputRef.current?.focus();
+  }, []);
+
+  const handleEdit = useCallback((msg: Message) => {
+    setEditingMessage(msg);
+    setReplyTo(null);
+    setInput(msg.body || "");
     msgInputRef.current?.focus();
   }, []);
 
   // ── Reactions ─────────────────────────────────────────────────────────────
   const handleReact = useCallback((msg: Message, emoji: string) => {
     const myId = me?.id || "me";
-    setMessages(prev => prev.map(m => {
-      if (m.id !== msg.id) return m;
-      const reactions = { ...(m.reactions || {}) };
-      if (reactions[myId] === emoji) delete reactions[myId]; // toggle off
-      else reactions[myId] = emoji;
-      return { ...m, reactions };
-    }));
+    const currentReactions = { ...(msg.reactions || {}) };
+    const isRemoving = currentReactions[myId] === emoji;
+    if (isRemoving) {
+      delete currentReactions[myId];
+    } else {
+      currentReactions[myId] = emoji;
+    }
+
+    setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, reactions: currentReactions } : m)));
+
     if (activeConvId) {
-      emit("message:react", { conversationId: activeConvId, messageId: msg.id, emoji });
+      emit("message:react", {
+        conversationId: activeConvId,
+        messageId: msg.id,
+        emoji: isRemoving ? "" : emoji,
+      });
     }
   }, [me, activeConvId, emit]);
 
@@ -834,7 +927,8 @@ export default function ChatPage() {
     onReply: handleReply,
     onReact: handleReact,
     onMediaClick: openLightbox,
-  }), [deleteMessage, handleReply, handleReact]);
+    onEdit: handleEdit,
+  }), [deleteMessage, handleReply, handleReact, handleEdit]);
 
   // ── Media & Links for Profile Panel ───────────────────────────────────────
   const chatMediaList = useMemo(() => {
@@ -1237,10 +1331,14 @@ export default function ChatPage() {
               onClick={() => {
                 setShowMenu(false);
                 if (activeConvId && messages.length > 0) {
-                  emit("message:read", {
-                    conversationId: activeConvId,
-                    upToMessageId: messages.at(-1)?.id,
-                  });
+                  const myId = me?.id || "me";
+                  const lastPartnerMsg = [...messages].reverse().find(m => m.senderId !== myId);
+                  if (lastPartnerMsg) {
+                    emit("message:read", {
+                      conversationId: activeConvId,
+                      upToMessageId: lastPartnerMsg.id,
+                    });
+                  }
                 }
               }}
             >
@@ -1267,8 +1365,29 @@ export default function ChatPage() {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* Edit Message Bar */}
+            {editingMessage && (
+              <div className={styles.replyBar}>
+                <div className={styles.replyBarLeft}>
+                  <span className={styles.replyBarTitle}>✏️ Editing message</span>
+                  <span className={styles.replyBarSnippet}>{editingMessage.body}</span>
+                </div>
+                <button
+                  type="button"
+                  className={styles.replyBarClose}
+                  onClick={() => {
+                    setEditingMessage(null);
+                    setInput("");
+                  }}
+                  title="Cancel edit"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             {/* Reply Preview Bar */}
-            {replyTo && (
+            {replyTo && !editingMessage && (
               <div className={styles.replyBar}>
                 <div className={styles.replyBarLeft}>
                   <span className={styles.replyBarTitle}>
@@ -1309,31 +1428,12 @@ export default function ChatPage() {
               <button
                 type="button"
                 className={styles.iconBtn}
-                title="Attach photo or audio"
+                title="Attach photo or video"
                 aria-label="Attach file"
                 disabled={uploadingMedia}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <IconPaperclip size={20} color={uploadingMedia ? "#00a884" : "#8696a0"} />
-              </button>
-
-              {/* View-Once Toggle */}
-              <button
-                type="button"
-                className={styles.iconBtn}
-                title={sendViewOnce ? "View-once ON — next photo burns after viewing" : "Send as view-once photo"}
-                aria-label="View once"
-                onClick={() => setSendViewOnce(v => !v)}
-                style={{ position: "relative" }}
-              >
-                <IconEyeOnce size={20} color={sendViewOnce ? "#00a884" : "#8696a0"} />
-                {sendViewOnce && (
-                  <span style={{
-                    position: "absolute", top: 4, right: 4,
-                    width: 8, height: 8, borderRadius: "50%",
-                    background: "#00a884", border: "1.5px solid #202c33"
-                  }} />
-                )}
               </button>
 
               {/* Screen Share / Live Camera */}
@@ -1391,6 +1491,98 @@ export default function ChatPage() {
           </>
         )}
       </main>
+
+      {/* ── Media Send Preview Modal (with "Send one time" button) ───────── */}
+      {pendingMedia && (
+        <div className={styles.mediaModalOverlay} onClick={() => setPendingMedia(null)}>
+          <div className={styles.mediaModalContent} onClick={e => e.stopPropagation()}>
+            <div className={styles.mediaModalHeader}>
+              <span className={styles.mediaModalTitle}>
+                {pendingMedia.mediaType === "video" ? "Send Video" : pendingMedia.mediaType === "audio" ? "Send Audio" : "Send Photo"}
+              </span>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setPendingMedia(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={styles.mediaModalBody}>
+              {pendingMedia.mediaType === "image" && (
+                <div className={styles.mediaPreviewImgWrap}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={pendingMedia.previewUrl} alt="Preview" className={styles.mediaPreviewImg} />
+                </div>
+              )}
+              {pendingMedia.mediaType === "video" && (
+                <div className={styles.mediaPreviewImgWrap}>
+                  <video src={pendingMedia.previewUrl} controls className={styles.mediaPreviewImg} />
+                </div>
+              )}
+              {pendingMedia.mediaType === "audio" && (
+                <div style={{ padding: "20px 0" }}>
+                  <audio src={pendingMedia.previewUrl} controls style={{ width: "100%" }} />
+                </div>
+              )}
+
+              {/* View once / "Send one time" button */}
+              {pendingMedia.mediaType !== "audio" && (
+                <div className={styles.mediaOptionRow}>
+                  <button
+                    type="button"
+                    className={`${styles.sendOnceBtn} ${pendingMedia.isViewOnce ? styles.sendOnceBtnActive : ""}`}
+                    onClick={() => setPendingMedia(prev => prev ? { ...prev, isViewOnce: !prev.isViewOnce } : null)}
+                  >
+                    <span className={styles.sendOnceNumber}>①</span>
+                    <span className={styles.sendOnceText}>
+                      {pendingMedia.isViewOnce ? "Send one time · Active" : "Send one time"}
+                    </span>
+                  </button>
+                  <span className={styles.sendOnceHint}>
+                    {pendingMedia.isViewOnce ? "Photo burns after viewing" : "Tap to make this view-once"}
+                  </span>
+                </div>
+              )}
+
+              {/* Caption input */}
+              <div className={styles.mediaCaptionWrap}>
+                <input
+                  type="text"
+                  placeholder="Add a caption... (optional)"
+                  className={styles.mediaCaptionInput}
+                  value={pendingMedia.caption}
+                  onChange={e => setPendingMedia(prev => prev ? { ...prev, caption: e.target.value } : null)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      confirmSendMedia();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className={styles.mediaModalFooter}>
+              <button
+                type="button"
+                className={styles.mediaCancelBtn}
+                onClick={() => setPendingMedia(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.mediaConfirmBtn}
+                onClick={confirmSendMedia}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Add Partner Modal ────────────────────────────────────────────────── */}
       {showAddModal && (
