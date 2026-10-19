@@ -16,6 +16,9 @@ import {
   IconSend,
   IconMore,
   IconLock,
+  IconDownload,
+  IconScreenShare,
+  IconEyeOnce,
 } from "@/components/Icons";
 import { API_URL } from "@/lib/api";
 import styles from "./page.module.css";
@@ -83,8 +86,22 @@ export default function ChatPage() {
   const [myContactCode, setMyContactCode] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
+  // Lightbox
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxName, setLightboxName] = useState("ta-photo.jpg");
+  const [lightboxType, setLightboxType] = useState<"image" | "video">("image");
+
+  // Send options
+  const [sendViewOnce, setSendViewOnce] = useState(false);
+
+  // Screen share
+  const [sharing, setSharing] = useState(false);
+  const screenVideoRef = useRef<HTMLVideoElement>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const msgInputRef = useRef<HTMLInputElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { emit, on } = useSocket(token);
@@ -407,6 +424,8 @@ export default function ChatPage() {
 
     setMessages(prev => [...prev, optimistic]);
     setInput("");
+    // Keep keyboard open on mobile — refocus the input immediately after clear
+    setTimeout(() => msgInputRef.current?.focus(), 0);
     stopTyping();
 
     emit("message:send", {
@@ -462,7 +481,9 @@ export default function ChatPage() {
     const clientMsgId = `${Date.now()}-media`;
     const myId = me?.id || "me";
     const isAudio = file.type.startsWith("audio");
-    const mediaType = isAudio ? "audio" : "image";
+    const isVideo = file.type.startsWith("video");
+    const mediaType = isAudio ? "audio" : isVideo ? "video" : "image";
+    const capturedViewOnce = sendViewOnce && !isAudio;
 
     const reader = new FileReader();
     reader.onload = async () => {
@@ -476,6 +497,7 @@ export default function ChatPage() {
         mediaUrl: base64Str,
         createdAt: new Date().toISOString(),
         status: "sent",
+        viewOnce: capturedViewOnce,
       };
       setMessages(prev => [...prev, optimistic]);
 
@@ -499,18 +521,53 @@ export default function ChatPage() {
           type: mediaType,
           mediaId: uploadData.mediaId || "inline",
           body: uploadedUrl,
+          viewOnce: capturedViewOnce,
         });
       } catch (err) {
         console.warn("Media upload error:", err);
         setToast("Media sent with local preview.");
       } finally {
         setUploadingMedia(false);
+        setSendViewOnce(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };
 
     reader.readAsDataURL(file);
   };
+
+  // ── Screen Share ──────────────────────────────────────────────────────────
+  const startScreenShare = async () => {
+    if (!activeConvId) { setToast("Open a conversation first"); return; }
+    try {
+      const stream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      screenStreamRef.current = stream;
+      setSharing(true);
+      if (screenVideoRef.current) {
+        screenVideoRef.current.srcObject = stream;
+        screenVideoRef.current.play();
+      }
+      stream.getTracks()[0].addEventListener("ended", stopScreenShare);
+    } catch {
+      setToast("Screen sharing cancelled or not supported.");
+    }
+  };
+
+  const stopScreenShare = () => {
+    screenStreamRef.current?.getTracks().forEach(t => t.stop());
+    screenStreamRef.current = null;
+    if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
+    setSharing(false);
+  };
+
+  // ── Lightbox ──────────────────────────────────────────────────────────────
+  const openLightbox = (url: string, name: string, type: "image" | "video" = "image") => {
+    setLightboxUrl(url);
+    setLightboxName(name);
+    setLightboxType(type);
+  };
+
+  const closeLightbox = () => setLightboxUrl(null);
 
   // ── Add Contact ───────────────────────────────────────────────────────────
   const handleAddContact = async (e: React.FormEvent) => {
@@ -851,6 +908,7 @@ export default function ChatPage() {
                   key={msg.id}
                   msg={msg}
                   isMine={msg.senderId === (me?.id || "me")}
+                  onMediaClick={openLightbox}
                 />
               ))}
 
@@ -868,10 +926,12 @@ export default function ChatPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,audio/*"
+                accept="image/*,audio/*,video/*"
                 className={styles.mediaInput}
                 onChange={handleFileSelect}
               />
+
+              {/* Attach */}
               <button
                 className={styles.iconBtn}
                 title="Attach photo or audio"
@@ -882,13 +942,43 @@ export default function ChatPage() {
                 <IconPaperclip size={20} color={uploadingMedia ? "#00a884" : "#8696a0"} />
               </button>
 
+              {/* View-Once Toggle */}
+              <button
+                className={styles.iconBtn}
+                title={sendViewOnce ? "View-once ON — next photo burns after viewing" : "Send as view-once photo"}
+                aria-label="View once"
+                onClick={() => setSendViewOnce(v => !v)}
+                style={{ position: "relative" }}
+              >
+                <IconEyeOnce size={20} color={sendViewOnce ? "#00a884" : "#8696a0"} />
+                {sendViewOnce && (
+                  <span style={{
+                    position: "absolute", top: 4, right: 4,
+                    width: 8, height: 8, borderRadius: "50%",
+                    background: "#00a884", border: "1.5px solid #202c33"
+                  }} />
+                )}
+              </button>
+
+              {/* Screen Share */}
+              <button
+                className={styles.iconBtn}
+                title={sharing ? "Stop sharing screen" : "Share your screen"}
+                aria-label="Screen share"
+                onClick={sharing ? stopScreenShare : startScreenShare}
+              >
+                <IconScreenShare size={20} color={sharing ? "#25d366" : "#8696a0"} />
+              </button>
+
               <div className={styles.inputCapsule}>
                 <input
+                  ref={msgInputRef}
                   type="text"
                   placeholder="Type a message"
                   className={styles.msgInput}
                   value={input}
                   onChange={handleInputChange}
+                  enterKeyHint="send"
                   onKeyDown={e => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -907,6 +997,16 @@ export default function ChatPage() {
                 <IconSend size={18} color="#ffffff" />
               </button>
             </footer>
+
+            {/* Screen Share Preview */}
+            {sharing && (
+              <div className={styles.screenShareBar}>
+                <span className={styles.screenShareDot} />
+                <span className={styles.screenShareLabel}>Sharing screen</span>
+                <video ref={screenVideoRef} className={styles.screenShareThumb} muted autoPlay playsInline />
+                <button className={styles.screenShareStop} onClick={stopScreenShare}>Stop</button>
+              </div>
+            )}
           </>
         )}
       </main>
@@ -1038,6 +1138,61 @@ export default function ChatPage() {
 
       {/* Toast */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+
+      {/* ── Media Lightbox (image + video) ──────────────────────────────────── */}
+      {lightboxUrl && (
+        <div
+          className={styles.lightboxOverlay}
+          onClick={closeLightbox}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Media viewer"
+        >
+          <div className={styles.lightboxToolbar} onClick={e => e.stopPropagation()}>
+            <span className={styles.lightboxTitle}>{lightboxType === "video" ? "Video" : "Photo"}</span>
+            <div className={styles.lightboxActions}>
+              <a
+                href={lightboxUrl}
+                download={lightboxName}
+                target="_blank"
+                rel="noreferrer"
+                className={styles.lightboxBtn}
+                title="Download"
+                onClick={e => e.stopPropagation()}
+              >
+                <IconDownload size={22} color="#e9edef" />
+              </a>
+              <button className={styles.lightboxBtn} title="Close" onClick={closeLightbox}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#e9edef" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div className={styles.lightboxImgWrap} onClick={e => e.stopPropagation()}>
+            {lightboxType === "video" ? (
+              <video
+                src={lightboxUrl}
+                controls
+                autoPlay
+                className={styles.lightboxVideo}
+                playsInline
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={lightboxUrl}
+                alt="Full size photo"
+                className={styles.lightboxImg}
+                draggable={false}
+              />
+            )}
+          </div>
+          <div className={styles.lightboxHint}>Pinch to zoom &middot; Tap outside to close</div>
+        </div>
+      )}
     </div>
   );
 }

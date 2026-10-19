@@ -1,89 +1,167 @@
 .wrap {
   display: flex;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   padding: 0 8px;
   width: 100%;
 }
 
-.mine {
-  justify-content: flex-end;
-}
+.mine  { justify-content: flex-end; }
+.theirs { justify-content: flex-start; }
 
-.theirs {
-  justify-content: flex-start;
-}
-
+/* ── Bubble ────────────────────────────────────────────────────────────────── */
 .bubble {
-  max-width: 82%;
+  max-width: 80%;
   min-width: 80px;
-  padding: 6px 9px 6px 10px;
+  padding: 6px 9px 4px 10px;
   border-radius: 8px;
   position: relative;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
   word-break: break-word;
-  animation: bubblePop 0.12s ease-out;
+  animation: bubblePop 0.13s cubic-bezier(0.34,1.56,0.64,1);
 }
 
 @keyframes bubblePop {
-  from {
-    opacity: 0;
-    transform: scale(0.97) translateY(2px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+  from { opacity: 0; transform: scale(0.94) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .bubbleMine {
   background: #005c4b;
-  border-top-right-radius: 0;
+  border-top-right-radius: 2px;
   color: #e9edef;
 }
 
 .bubbleTheirs {
   background: #202c33;
-  border-top-left-radius: 0;
+  border-top-left-radius: 2px;
   color: #e9edef;
 }
 
+/* ── Media wrapper ─────────────────────────────────────────────────────────── */
 .mediaWrap {
-  margin-bottom: 4px;
-  border-radius: 6px;
+  position: relative;
+  margin-bottom: 2px;
+  border-radius: 8px;
+  overflow: visible;     /* let download btn sit outside */
+  max-width: 280px;
+}
+
+.mediaImgWrap {
+  position: relative;
+  border-radius: 8px;
   overflow: hidden;
+  display: block;
+  background: #111b21;
 }
 
 .mediaImg {
   width: 100%;
-  max-width: 320px;
-  max-height: 380px;
+  max-width: 280px;
+  max-height: 340px;
   object-fit: cover;
   display: block;
-  border-radius: 6px;
+  border-radius: 8px;
+  transition: filter 0.2s;
 }
 
-.audioWrap {
-  margin-bottom: 4px;
+/* view-once blur overlay */
+.viewOnceMask .mediaImg {
+  filter: blur(24px) brightness(0.4) saturate(0.5);
+  pointer-events: none;
 }
+
+/* view-once badge */
+.viewOnceBadge {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+  background: rgba(0,0,0,0.35);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+/* replays remaining chip */
+.replaysChip {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+/* video play overlay */
+.videoPlayOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* download button */
+.downloadBtn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.1s;
+  z-index: 2;
+}
+
+.mediaWrap:hover .downloadBtn { opacity: 1; }
+.downloadBtn:hover { background: rgba(0,0,0,0.78); }
+.downloadBtn:active { transform: scale(0.9); }
+
+/* ── Audio ─────────────────────────────────────────────────────────────────── */
+.audioWrap { margin-bottom: 2px; }
 
 .audio {
   width: 100%;
-  max-width: 250px;
+  max-width: 240px;
   height: 36px;
+  border-radius: 20px;
+  accent-color: #00a884;
 }
 
+/* ── Text ──────────────────────────────────────────────────────────────────── */
 .text {
   font-size: 0.93rem;
-  line-height: 1.42;
+  line-height: 1.45;
   margin: 0;
   white-space: pre-wrap;
   color: #e9edef;
 }
 
+/* ── Meta ──────────────────────────────────────────────────────────────────── */
 .meta {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   justify-content: flex-end;
   margin-top: 3px;
   float: right;
@@ -95,6 +173,11 @@
   font-size: 0.68rem;
   color: #8696a0;
   font-weight: 400;
+}
+
+.viewOnceMini {
+  font-size: 0.68rem;
+  margin-right: 1px;
 }
 
 .status {

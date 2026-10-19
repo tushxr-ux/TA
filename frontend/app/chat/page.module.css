@@ -897,3 +897,158 @@
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+/* ── Image / Video Lightbox ──────────────────────────────────────────────── */
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.96);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.18s ease;
+  touch-action: pinch-zoom;
+}
+
+.lightboxToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(8px);
+  flex-shrink: 0;
+}
+
+.lightboxTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e9edef;
+  letter-spacing: 0.3px;
+}
+
+.lightboxActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lightboxBtn {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  text-decoration: none;
+  color: inherit;
+}
+
+.lightboxBtn:hover { background: rgba(255,255,255,0.2); }
+.lightboxBtn:active { transform: scale(0.9); }
+
+.lightboxImgWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+}
+
+.lightboxImg {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  user-select: none;
+  touch-action: pinch-zoom;
+  /* Enable pinch zoom on mobile via transform */
+  transform-origin: center;
+}
+
+.lightboxVideo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  outline: none;
+}
+
+.lightboxHint {
+  text-align: center;
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.35);
+  padding: 8px 0 max(12px, env(safe-area-inset-bottom));
+  flex-shrink: 0;
+}
+
+/* ── Screen Share Bar ────────────────────────────────────────────────────── */
+.screenShareBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, #0d2219 0%, #0b1a12 100%);
+  border-top: 1px solid rgba(37,211,102,0.25);
+  flex-shrink: 0;
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.screenShareDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #25d366;
+  box-shadow: 0 0 6px #25d366;
+  animation: pulse 1.4s infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.screenShareLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #25d366;
+  flex: 1;
+}
+
+.screenShareThumb {
+  width: 80px;
+  height: 46px;
+  object-fit: cover;
+  border-radius: 5px;
+  border: 1.5px solid rgba(37,211,102,0.4);
+  background: #000;
+}
+
+.screenShareStop {
+  background: #e53935;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  flex-shrink: 0;
+}
+
+.screenShareStop:hover  { opacity: 0.88; }
+.screenShareStop:active { transform: scale(0.95); }
+
