@@ -4,6 +4,7 @@ import { Repository, DataSource, In } from 'typeorm';
 import { createHash } from 'crypto';
 import { ContactRequest, Contact } from './contact.entity';
 import { User } from '../users/user.entity';
+import { ChatGateway } from '../gateway/chat.gateway';
 
 @Injectable()
 export class ContactsService {
@@ -11,6 +12,7 @@ export class ContactsService {
     @InjectRepository(ContactRequest) private requests: Repository<ContactRequest>,
     @InjectRepository(Contact) private contacts: Repository<Contact>,
     @InjectRepository(User) private users: Repository<User>,
+    private gateway: ChatGateway,
     private ds: DataSource,
   ) {}
 
@@ -66,6 +68,13 @@ export class ContactsService {
     const existing = await this.requests.findOne({ where: { fromUserId, toUserId: target.id } });
     if (existing) {
       await this.requests.update(existing.id, { status: 'pending' });
+      const sender = await this.users.findOne({ where: { id: fromUserId } });
+      this.gateway?.notifyUser?.(target.id, 'contact:request', {
+        requestId: existing.id,
+        fromUserId,
+        fromName: sender?.displayName || sender?.username || 'Someone',
+        fromUsername: sender?.username,
+      });
       return {
         requestId: existing.id,
         status: 'pending',
@@ -76,6 +85,13 @@ export class ContactsService {
 
     const req = this.requests.create({ fromUserId, toUserId: target.id });
     await this.requests.save(req);
+    const sender = await this.users.findOne({ where: { id: fromUserId } });
+    this.gateway?.notifyUser?.(target.id, 'contact:request', {
+      requestId: req.id,
+      fromUserId,
+      fromName: sender?.displayName || sender?.username || 'Someone',
+      fromUsername: sender?.username,
+    });
     return {
       requestId: req.id,
       status: 'pending',
@@ -140,6 +156,8 @@ export class ContactsService {
         }
       }
     });
+
+    this.gateway?.notifyUser?.(req.fromUserId, 'contact:accepted', { byUserId: userId });
 
     return { accepted: true };
   }

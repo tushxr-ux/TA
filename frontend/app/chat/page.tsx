@@ -29,6 +29,61 @@ const RTC_CONFIG: RTCConfiguration = {
   ],
 };
 
+function playNotificationSound() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    // Crisp pleasant two-tone melodic chime: F#5 (740 Hz) -> B5 (988 Hz)
+    osc.frequency.setValueAtTime(739.99, now);
+    osc.frequency.setValueAtTime(987.77, now + 0.1);
+
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.22, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.43);
+  } catch {
+    // Audio context may be restricted before first gesture
+  }
+}
+
+function showBrowserNotification(title: string, body: string, tag?: string) {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.showNotification(title, {
+          body,
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          tag: tag || "ta-chat",
+          vibrate: [100, 50, 100],
+        } as any);
+      }).catch(() => {
+        const n = new Notification(title, { body, icon: "/icons/icon-192.png", tag });
+        n.onclick = () => { window.focus(); n.close(); };
+      });
+    } else {
+      const n = new Notification(title, { body, icon: "/icons/icon-192.png", tag });
+      n.onclick = () => { window.focus(); n.close(); };
+    }
+  } catch (err) {
+    console.warn("Notification error:", err);
+  }
+}
+
 interface UserProfile {
   id: string;
   displayName: string;
@@ -67,8 +122,15 @@ export default function ChatPage() {
   const [token, setToken] = useState<string | null>(null);
   const [me, setMe] = useState<UserProfile | null>(null);
 
+  // Notifications
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
+  const [showNotifBanner, setShowNotifBanner] = useState(false);
+  const unreadCountRef = useRef(0);
+
   // Chats & Contacts
   const [chats, setChats] = useState<ChatItem[]>([]);
+  const chatsRef = useRef<ChatItem[]>([]);
+  chatsRef.current = chats;
   const [incomingRequests, setIncomingRequests] = useState<ContactRequestItem[]>([]);
   const [activeChat, setActiveChat] = useState<ChatItem | null>(null);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
@@ -196,6 +258,62 @@ export default function ChatPage() {
     loadMe(storedToken);
   }, [router]);
 
+  // ── Notification lifecycle & Service Worker ───────────────────────────────
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotifPermission(Notification.permission);
+      if (Notification.permission === "default") {
+        try {
+          const dismissed = sessionStorage.getItem("notif_dismissed");
+          if (!dismissed) setShowNotifBanner(true);
+        } catch {}
+      }
+    }
+
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+
+    const resetTitle = () => {
+      unreadCountRef.current = 0;
+      document.title = "TA - Private Chat";
+    };
+
+    window.addEventListener("focus", resetTitle);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") resetTitle();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.removeEventListener("focus", resetTitle);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  const requestNotifications = useCallback(async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setToast("Desktop notifications not supported in this browser.");
+      return;
+    }
+
+    try {
+      const perm = await Notification.requestPermission();
+      setNotifPermission(perm);
+      if (perm === "granted") {
+        setShowNotifBanner(false);
+        playNotificationSound();
+        showBrowserNotification("🔔 Notifications Active", "You will now receive alerts for incoming messages.");
+        setToast("Notifications enabled!");
+      } else if (perm === "denied") {
+        setShowNotifBanner(false);
+        setToast("Notifications blocked. Click the lock icon in the browser address bar to Allow.");
+      }
+    } catch {
+      setToast("Could not request notification permission.");
+    }
+  }, []);
+
   // ── Load Chats & Contacts ─────────────────────────────────────────────────
   const loadChatsAndContacts = useCallback(async () => {
     const curToken = token || localStorage.getItem("access_token");
@@ -255,11 +373,15 @@ export default function ChatPage() {
       // Only update chats if we got a valid response (don't wipe chats on transient error)
       if (Array.isArray(convList) || Array.isArray(contactList)) {
         setChats(combined);
+        // Auto-join all conversation rooms on socket to ensure real-time message delivery
+        combined.forEach(c => {
+          if (c.id) emit("conversation:join", { conversationId: c.id });
+        });
       }
     } catch (err) {
       console.warn("Failed to load chats:", err);
     }
-  }, [token]);
+  }, [token, emit]);
 
   // ── Fetch Incoming Contact Requests ───────────────────────────────────────
   const fetchRequests = useCallback(async () => {
@@ -379,6 +501,35 @@ export default function ChatPage() {
   useEffect(() => {
     const offs = [
       on("message:new", (msg: any) => {
+        const myId = me?.id || "me";
+        const isMine = msg.senderId === myId;
+
+        // Play audio chime and trigger notifications for incoming partner messages
+        if (!isMine) {
+          playNotificationSound();
+
+          const senderChat = chatsRef.current.find(c => c.id === msg.conversationId || c.contactId === msg.senderId);
+          const senderName = senderChat?.displayName || "Partner";
+          const snippet = msg.type === "image"
+            ? "📷 Photo"
+            : msg.type === "video"
+            ? "🎥 Video"
+            : msg.type === "audio"
+            ? "🎵 Audio message"
+            : msg.body || "New message";
+
+          showBrowserNotification(`💬 ${senderName}`, snippet, msg.conversationId);
+
+          if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+            unreadCountRef.current += 1;
+            document.title = `(${unreadCountRef.current}) ${senderName}: ${snippet.slice(0, 20)}`;
+          }
+
+          if (activeConvId !== msg.conversationId) {
+            setToast(`💬 ${senderName}: ${snippet.slice(0, 35)}`);
+          }
+        }
+
         if (activeConvId && msg.conversationId === activeConvId) {
           setMessages(prev => {
             if (prev.some(m => m.id === msg.id || (msg.clientMsgId && m.id === msg.clientMsgId))) {
@@ -394,9 +545,11 @@ export default function ChatPage() {
 
         setChats(prev => prev.map(c => {
           if (c.id === msg.conversationId || c.contactId === msg.senderId) {
+            const isViewingThisChat = activeConvId === (c.id || msg.conversationId) && typeof document !== "undefined" && document.visibilityState === "visible";
             return {
               ...c,
               id: c.id || msg.conversationId,
+              unreadCount: (isMine || isViewingThisChat) ? 0 : (c.unreadCount || 0) + 1,
               lastMessage: {
                 id: msg.id,
                 senderId: msg.senderId,
@@ -466,7 +619,24 @@ export default function ChatPage() {
       on("screen:requested", (d: any) => {
         if (d?.sessionId && d?.from) {
           setIncomingLive({ sessionId: d.sessionId, from: d.from });
+          playNotificationSound();
+          showBrowserNotification("🎥 Live Share Request", `${activeChat?.displayName || "Partner"} is sharing live screen/camera!`);
         }
+      }),
+
+      on("contact:request", (d: any) => {
+        playNotificationSound();
+        showBrowserNotification("📩 Partner Request", `${d?.fromName || "Someone"} sent you a partner request!`);
+        setToast(`📩 ${d?.fromName || "Someone"} sent you a partner request!`);
+        loadChatsAndContacts();
+        fetchRequests();
+      }),
+
+      on("contact:accepted", () => {
+        playNotificationSound();
+        showBrowserNotification("✓ Partner Request Accepted", "Your partner request was accepted! You can now chat.");
+        setToast("✓ Partner request accepted!");
+        loadChatsAndContacts();
       }),
 
       on("screen:accepted", async () => {
@@ -1068,6 +1238,14 @@ export default function ChatPage() {
             </button>
             <button
               className={styles.iconBtn}
+              title={notifPermission === "granted" ? "Notifications active (Click to test chime)" : "Enable notifications"}
+              aria-label="Notification settings"
+              onClick={requestNotifications}
+            >
+              <span style={{ fontSize: "16px", lineHeight: 1 }}>{notifPermission === "granted" ? "🔔" : "🔕"}</span>
+            </button>
+            <button
+              className={styles.iconBtn}
               title="Log out"
               aria-label="Log out"
               onClick={() => {
@@ -1080,6 +1258,34 @@ export default function ChatPage() {
             </button>
           </div>
         </header>
+
+        {/* Notification Permission Banner */}
+        {notifPermission === "default" && showNotifBanner && (
+          <div className={styles.notifPromptBanner}>
+            <div className={styles.notifPromptLeft}>
+              <span className={styles.notifPromptIcon}>🔔</span>
+              <div className={styles.notifPromptText}>
+                <span className={styles.notifPromptTitle}>Enable notifications</span>
+                <span className={styles.notifPromptDesc}>Never miss incoming messages & calls</span>
+              </div>
+            </div>
+            <div className={styles.notifPromptRight}>
+              <button className={styles.notifPromptBtn} onClick={requestNotifications}>
+                Turn On
+              </button>
+              <button
+                className={styles.notifPromptClose}
+                onClick={() => {
+                  setShowNotifBanner(false);
+                  try { sessionStorage.setItem("notif_dismissed", "1"); } catch {}
+                }}
+                title="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Search */}
         <div className={styles.searchWrap}>
@@ -1267,6 +1473,15 @@ export default function ChatPage() {
                       }}
                     >
                       👤 Contact Info
+                    </button>
+                    <button
+                      className={styles.menuItem}
+                      onClick={() => {
+                        setShowMenu(false);
+                        requestNotifications();
+                      }}
+                    >
+                      {notifPermission === "granted" ? "🔔 Notifications (Active)" : "🔔 Enable Notifications"}
                     </button>
                     <button
                       className={styles.menuItem}

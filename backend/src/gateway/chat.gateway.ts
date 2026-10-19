@@ -14,6 +14,7 @@ import { Repository } from 'typeorm';
 import Redis from 'ioredis';
 import { Inject } from '@nestjs/common';
 import { Message } from '../messages/message.entity';
+import { ConversationMember } from '../conversations/conversations.entities';
 
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
@@ -25,6 +26,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private jwt: JwtService,
     @InjectRepository(Message) private msgs: Repository<Message>,
+    @InjectRepository(ConversationMember) private members: Repository<ConversationMember>,
     @Inject('REDIS') private redis: InstanceType<typeof Redis>,
   ) {}
 
@@ -38,6 +40,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Join personal room so we can push events to this user from anywhere
       await socket.join(payload.sub);
+
+      // Auto-join all existing conversation rooms for this user
+      try {
+        const userConvs = await this.members.find({ where: { userId: payload.sub } });
+        for (const c of userConvs) {
+          await socket.join(c.conversationId);
+        }
+      } catch {}
 
       // Mark online in Redis (60s TTL; client heartbeats keep it alive)
       await this.redis.setex(`presence:${payload.sub}`, 60, '1');
@@ -144,7 +154,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       body: data.body, // send as string; E2EE ciphertext in Phase 2
     });
 
-    // ponytail: push notification for offline users handled in PushService — called from here in Phase 1.6
+    // Also push directly to recipient personal room to guarantee delivery
+    try {
+      const convMembers = await this.members.find({ where: { conversationId: data.conversationId } });
+      for (const m of convMembers) {
+        if (m.userId !== socket.data.userId) {
+          this.server.to(m.userId).emit('message:new', {
+            ...msg,
+            body: data.body,
+          });
+        }
+      }
+    } catch {}
   }
 
   @SubscribeMessage('message:delete')
@@ -338,5 +359,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   joinRoom(userId: string, roomId: string) {
     const sockets = this.server.in(userId).fetchSockets();
     sockets.then(ss => ss.forEach(s => s.join(roomId)));
+  }
+
+  notifyUser(userId: string, event: string, data: any) {
+    this.server.to(userId).emit(event, data);
   }
 }

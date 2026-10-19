@@ -1629,3 +1629,98 @@
   opacity: 0.92;
 }
 
+/* ── Notification Prompt Banner ───────────────────────────────────────────── */
+.notifPromptBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.14) 0%, rgba(232, 121, 160, 0.12) 100%);
+  border-bottom: 1px solid rgba(167, 139, 250, 0.25);
+  animation: slideDownBanner 0.2s ease-out;
+}
+
+@keyframes slideDownBanner {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.notifPromptLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.notifPromptIcon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.notifPromptText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.notifPromptTitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f3f4f6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notifPromptDesc {
+  font-size: 0.74rem;
+  color: #a78bfa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notifPromptRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.notifPromptBtn {
+  background: linear-gradient(135deg, #a78bfa 0%, #e879a0 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.notifPromptBtn:hover {
+  opacity: 0.92;
+  transform: scale(1.02);
+}
+
+.notifPromptClose {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 0.85rem;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.1s;
+}
+
+.notifPromptClose:hover {
+  color: #ffffff;
+}
+
