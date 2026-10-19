@@ -48,12 +48,14 @@ export default function ChatBubble({ msg, isMine, actions }: Props) {
   const [revealed, setRevealed] = useState(isMine);
   const [showCtx, setShowCtx] = useState(false);
   const [confirmDeleteScope, setConfirmDeleteScope] = useState<"me" | "all" | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // Swipe-left-to-reply state
+  // Swipe-left-to-reply & gesture state
   const [swipeOffset, setSwipeOffset] = useState(0);
   const isSwiping = useRef(false);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasLongPressedRef = useRef(false);
 
   const ext = isVideo ? ".mp4" : ".jpg";
   const baseName = `ta-${msg.type}-${msg.id.slice(0, 8)}${ext}`;
@@ -63,12 +65,14 @@ export default function ChatBubble({ msg, isMine, actions }: Props) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     touchStartPos.current = { x: e.clientX, y: e.clientY };
     isSwiping.current = false;
+    hasLongPressedRef.current = false;
 
-    // Long press to open message options (delete, edit, react)
+    // Long press to open message action sheet (edit, delete, react)
     longPressTimer.current = setTimeout(() => {
       if (!isSwiping.current) {
+        hasLongPressedRef.current = true;
         setShowCtx(true);
-        try { navigator.vibrate?.(30); } catch {}
+        try { navigator.vibrate?.(35); } catch {}
       }
     }, 450);
   }, []);
@@ -79,7 +83,7 @@ export default function ChatBubble({ msg, isMine, actions }: Props) {
     const dy = e.clientY - touchStartPos.current.y;
 
     if (!isSwiping.current) {
-      // If moving mostly vertically, cancel long-press if significant, ignore horizontal
+      // If moving vertically, cancel long-press
       if (Math.abs(dy) > Math.abs(dx)) {
         if (Math.abs(dy) > 10 && longPressTimer.current) {
           clearTimeout(longPressTimer.current);
@@ -87,14 +91,13 @@ export default function ChatBubble({ msg, isMine, actions }: Props) {
         return;
       }
       // Swipe left detected
-      if (dx < -10 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx < -12 && Math.abs(dx) > Math.abs(dy)) {
         isSwiping.current = true;
         if (longPressTimer.current) clearTimeout(longPressTimer.current);
       }
     }
 
     if (isSwiping.current) {
-      // Clamp swipe to max -68px
       const clamped = Math.max(-68, Math.min(0, dx));
       setSwipeOffset(clamped);
     }
@@ -116,6 +119,7 @@ export default function ChatBubble({ msg, isMine, actions }: Props) {
   const closeAll = () => {
     setShowCtx(false);
     setConfirmDeleteScope(null);
+    setCopied(false);
   };
 
   // ── Media tap ──────────────────────────────────────────────────────────────
@@ -154,119 +158,171 @@ export default function ChatBubble({ msg, isMine, actions }: Props) {
       className={`${styles.wrap} ${isMine ? styles.mine : styles.theirs}`}
       onContextMenu={e => { e.preventDefault(); setShowCtx(true); }}
     >
-      {/* ── Context Menu (Reactions, Edit, Delete, Reply) ────────────────────── */}
+      {/* ── Fixed Action Modal / Bottom Sheet ─────────────────────────────────── */}
       {showCtx && (
         <div
-          className={`${styles.ctxMenu} ${isMine ? styles.ctxMine : styles.ctxTheirs}`}
+          className={styles.actionOverlay}
+          onClick={e => {
+            e.stopPropagation();
+            closeAll();
+          }}
           onPointerDown={e => e.stopPropagation()}
         >
-          {/* Quick emoji row */}
-          <div className={styles.ctxEmojiRow}>
-            {QUICK_EMOJIS.map(e => (
-              <button
-                key={e}
-                type="button"
-                className={styles.emojiBtn}
-                title={`React with ${e}`}
-                onClick={ev => {
-                  ev.stopPropagation();
-                  actions?.onReact?.(msg, e);
-                  closeAll();
-                }}
-              >
-                {e}
-              </button>
-            ))}
-          </div>
-
-          {/* Edit option (for own text messages) */}
-          {isMine && !isImage && !isVideo && !isAudio && actions?.onEdit && (
-            <button
-              type="button"
-              className={styles.ctxItem}
-              onClick={() => {
-                actions?.onEdit?.(msg);
-                closeAll();
-              }}
-            >
-              ✏️ Edit message
-            </button>
-          )}
-
-          {/* Reply option */}
-          <button
-            type="button"
-            className={styles.ctxItem}
-            onClick={() => {
-              actions?.onReply?.(msg);
-              closeAll();
-            }}
+          <div
+            className={styles.actionCard}
+            onClick={e => e.stopPropagation()}
+            onPointerDown={e => e.stopPropagation()}
           >
-            ↩ Reply
-          </button>
+            {confirmDeleteScope ? (
+              <div className={styles.confirmBox}>
+                <div className={styles.confirmIcon}>🗑️</div>
+                <h4 className={styles.confirmTitle}>
+                  {confirmDeleteScope === "all" ? "Delete for everyone?" : "Delete for me?"}
+                </h4>
+                <p className={styles.confirmDesc}>
+                  {confirmDeleteScope === "all"
+                    ? "This message will be deleted for both you and your partner."
+                    : "This message will be removed from your chat history."}
+                </p>
+                <div className={styles.confirmBtns}>
+                  <button
+                    type="button"
+                    className={styles.confirmCancelBtn}
+                    onClick={() => setConfirmDeleteScope(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.confirmDeleteBtn}
+                    onClick={() => {
+                      actions?.onDelete?.(msg, confirmDeleteScope);
+                      closeAll();
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* 1. Quick Emoji Reactions */}
+                <div className={styles.actionEmojiRow}>
+                  {QUICK_EMOJIS.map(e => (
+                    <button
+                      key={e}
+                      type="button"
+                      className={styles.actionEmojiBtn}
+                      title={`React ${e}`}
+                      onClick={() => {
+                        actions?.onReact?.(msg, e);
+                        closeAll();
+                      }}
+                    >
+                      {e}
+                    </button>
+                  ))}
+                </div>
 
-          {/* Delete options */}
-          <button
-            type="button"
-            className={styles.ctxItem}
-            onClick={() => {
-              setConfirmDeleteScope("me");
-              setShowCtx(false);
-            }}
-          >
-            🗑 Delete for me
-          </button>
+                {/* 2. Message Snippet */}
+                <div className={styles.actionSnippet}>
+                  <span className={styles.snippetSender}>{isMine ? "You" : "Partner"}:</span>{" "}
+                  <span className={styles.snippetText}>
+                    {msg.type === "image"
+                      ? "📷 Photo"
+                      : msg.type === "video"
+                      ? "🎥 Video"
+                      : msg.type === "audio"
+                      ? "🎵 Audio message"
+                      : msg.body?.slice(0, 65) || ""}
+                  </span>
+                </div>
 
-          {isMine && (
-            <button
-              type="button"
-              className={`${styles.ctxItem} ${styles.ctxDanger}`}
-              onClick={() => {
-                setConfirmDeleteScope("all");
-                setShowCtx(false);
-              }}
-            >
-              ❌ Delete for everyone
-            </button>
-          )}
+                {/* 3. Action Items */}
+                <div className={styles.actionList}>
+                  {/* Edit: Available for sender's own text messages */}
+                  {isMine && !isImage && !isVideo && !isAudio && actions?.onEdit && (
+                    <button
+                      type="button"
+                      className={styles.actionItem}
+                      onClick={() => {
+                        actions?.onEdit?.(msg);
+                        closeAll();
+                      }}
+                    >
+                      <span className={styles.actionIcon}>✏️</span>
+                      <span>Edit message</span>
+                    </button>
+                  )}
 
-          <button type="button" className={styles.ctxCancel} onClick={closeAll}>
-            Cancel
-          </button>
-        </div>
-      )}
+                  {/* Reply */}
+                  <button
+                    type="button"
+                    className={styles.actionItem}
+                    onClick={() => {
+                      actions?.onReply?.(msg);
+                      closeAll();
+                    }}
+                  >
+                    <span className={styles.actionIcon}>↩️</span>
+                    <span>Reply</span>
+                  </button>
 
-      {/* ── Delete Confirmation Dialog ────────────────────────────────────── */}
-      {confirmDeleteScope && (
-        <div
-          className={`${styles.ctxMenu} ${isMine ? styles.ctxMine : styles.ctxTheirs}`}
-          style={{ padding: "14px", minWidth: "220px", textAlign: "center" }}
-          onPointerDown={e => e.stopPropagation()}
-        >
-          <p style={{ margin: "0 0 12px", fontSize: "0.85rem", color: "#eeeef4", lineHeight: 1.4 }}>
-            {confirmDeleteScope === "all" ? "Delete for everyone?" : "Delete this message?"}
-          </p>
-          <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
-            <button
-              type="button"
-              className={styles.ctxCancel}
-              style={{ border: "1px solid rgba(255,255,255,0.1)", padding: "7px 14px", borderRadius: "8px" }}
-              onClick={() => setConfirmDeleteScope(null)}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className={`${styles.ctxItem} ${styles.ctxDanger}`}
-              style={{ width: "auto", padding: "7px 16px", borderRadius: "8px", background: "rgba(248,113,113,0.18)" }}
-              onClick={() => {
-                actions?.onDelete?.(msg, confirmDeleteScope);
-                setConfirmDeleteScope(null);
-                closeAll();
-              }}
-            >
-              Delete
-            </button>
+                  {/* Copy text */}
+                  {!isImage && !isVideo && !isAudio && msg.body && (
+                    <button
+                      type="button"
+                      className={styles.actionItem}
+                      onClick={() => {
+                        try {
+                          navigator.clipboard?.writeText(msg.body || "");
+                          setCopied(true);
+                          setTimeout(() => {
+                            closeAll();
+                          }, 500);
+                        } catch {
+                          closeAll();
+                        }
+                      }}
+                    >
+                      <span className={styles.actionIcon}>📋</span>
+                      <span>{copied ? "Copied! ✓" : "Copy text"}</span>
+                    </button>
+                  )}
+
+                  {/* Delete for me */}
+                  <button
+                    type="button"
+                    className={styles.actionItem}
+                    onClick={() => setConfirmDeleteScope("me")}
+                  >
+                    <span className={styles.actionIcon}>🗑️</span>
+                    <span>Delete for me</span>
+                  </button>
+
+                  {/* Delete for everyone */}
+                  {isMine && (
+                    <button
+                      type="button"
+                      className={`${styles.actionItem} ${styles.actionDanger}`}
+                      onClick={() => setConfirmDeleteScope("all")}
+                    >
+                      <span className={styles.actionIcon}>❌</span>
+                      <span>Delete for everyone</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Dismiss */}
+                <button
+                  type="button"
+                  className={styles.actionDismissBtn}
+                  onClick={closeAll}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -285,24 +341,18 @@ export default function ChatBubble({ msg, isMine, actions }: Props) {
             transform: swipeOffset < 0 ? `translateX(${swipeOffset}px)` : undefined,
             transition: isSwiping.current ? "none" : "transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1)",
           }}
-          onClick={() => { if (showCtx) closeAll(); }}
+          onClick={() => {
+            if (hasLongPressedRef.current) {
+              hasLongPressedRef.current = false;
+              return;
+            }
+            if (isSwiping.current) return;
+            // For text messages, tapping or clicking the message bubble opens the options sheet
+            if (!isImage && !isVideo && !isAudio) {
+              setShowCtx(true);
+            }
+          }}
         >
-          {/* Subtle dropdown button for actions */}
-          <button
-            type="button"
-            className={styles.bubbleMenuBtn}
-            title="Message options"
-            aria-label="Message options"
-            onClick={e => {
-              e.stopPropagation();
-              setShowCtx(v => !v);
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-
           {/* ── Reply preview ───────────────────────────────────────────────── */}
           {msg.replyBody && (
             <div className={styles.replyPreview}>

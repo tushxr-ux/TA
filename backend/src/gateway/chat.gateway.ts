@@ -153,7 +153,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: string; messageId: string; scope: 'me' | 'all' },
   ) {
     if (data?.scope === 'all' && data?.messageId) {
-      await this.msgs.update({ id: data.messageId, senderId: socket.data.userId }, { deletedForAll: true });
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.messageId);
+      if (isUuid) {
+        await this.msgs.update({ id: data.messageId, senderId: socket.data.userId }, { deletedForAll: true });
+      } else {
+        await this.msgs.update({ clientMsgId: data.messageId, senderId: socket.data.userId }, { deletedForAll: true });
+      }
       this.server.to(data.conversationId).emit('message:deleted', { messageId: data.messageId });
     }
   }
@@ -165,7 +170,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     if (data?.conversationId && data?.messageId) {
       const userId = socket.data.userId;
-      const msg = await this.msgs.findOne({ where: { id: data.messageId } });
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.messageId);
+      const msg = isUuid
+        ? await this.msgs.findOne({ where: { id: data.messageId } })
+        : await this.msgs.findOne({ where: { clientMsgId: data.messageId } });
+
       const currentReactions: Record<string, string> = { ...(msg?.reactions || {}) };
 
       if (data.emoji) {
@@ -179,7 +188,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       if (msg) {
-        await this.msgs.update({ id: data.messageId }, { reactions: currentReactions });
+        await this.msgs.update({ id: msg.id }, { reactions: currentReactions });
       }
 
       this.server.to(data.conversationId).emit('message:reacted', {
@@ -198,10 +207,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     if (data?.conversationId && data?.messageId && typeof data?.body === 'string') {
       const now = new Date();
-      await this.msgs.update(
-        { id: data.messageId, senderId: socket.data.userId },
-        { body: Buffer.from(data.body, 'utf8'), editedAt: now },
-      );
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.messageId);
+      if (isUuid) {
+        await this.msgs.update(
+          { id: data.messageId, senderId: socket.data.userId },
+          { body: Buffer.from(data.body, 'utf8'), editedAt: now },
+        );
+      } else {
+        await this.msgs.update(
+          { clientMsgId: data.messageId, senderId: socket.data.userId },
+          { body: Buffer.from(data.body, 'utf8'), editedAt: now },
+        );
+      }
       this.server.to(data.conversationId).emit('message:edited', {
         messageId: data.messageId,
         body: data.body,

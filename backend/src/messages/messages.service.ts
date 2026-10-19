@@ -110,14 +110,21 @@ export class MessagesService {
   /** Single message delete */
   async deleteOne(messageId: string, userId: string, scope: 'me' | 'all') {
     if (scope === 'all') {
-      await this.msgs.update({ id: messageId, senderId: userId }, { deletedForAll: true });
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(messageId);
+      if (isUuid) {
+        await this.msgs.update({ id: messageId, senderId: userId }, { deletedForAll: true });
+      } else {
+        await this.msgs.update({ clientMsgId: messageId, senderId: userId }, { deletedForAll: true });
+      }
     }
-    // "me" scope: client hides it locally — no server action needed for E2EE model
   }
 
   /** Single message edit */
   async editOne(messageId: string, userId: string, newBody: string) {
-    const msg = await this.msgs.findOne({ where: { id: messageId, senderId: userId } });
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(messageId);
+    const msg = isUuid
+      ? await this.msgs.findOne({ where: { id: messageId, senderId: userId } })
+      : await this.msgs.findOne({ where: { clientMsgId: messageId, senderId: userId } });
     if (!msg) throw new ForbiddenException('Message not found or not owned by user');
     msg.body = Buffer.from(newBody, 'utf8');
     msg.editedAt = new Date();
