@@ -26,15 +26,17 @@
 }
 
 .bubbleMine {
-  background: #005c4b;
+  background: linear-gradient(135deg, #3d1f4e 0%, #2d1a3e 100%);
   border-top-right-radius: 2px;
-  color: #e9edef;
+  color: #eeeef4;
+  border: 1px solid rgba(167,139,250,0.15);
 }
 
 .bubbleTheirs {
-  background: #202c33;
+  background: #1c1c2e;
   border-top-left-radius: 2px;
-  color: #e9edef;
+  color: #eeeef4;
+  border: 1px solid rgba(255,255,255,0.06);
 }
 
 /* ── Media wrapper ─────────────────────────────────────────────────────────── */
