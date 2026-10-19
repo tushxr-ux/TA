@@ -123,7 +123,6 @@ export default function ChatBubble({ msg, isMine, onLongPress, onMediaClick }: P
               style={{ cursor: burned ? "default" : "pointer" }}
             >
               <video
-                ref={videoRef}
                 src={mediaUrl}
                 className={styles.mediaImg}
                 preload="metadata"
