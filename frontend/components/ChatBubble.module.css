@@ -186,3 +186,202 @@
   display: inline-flex;
   align-items: center;
 }
+
+/* ── Context Menu ──────────────────────────────────────────────────────────── */
+.ctxMenu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  background: #1c1c2e;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  z-index: 50;
+  min-width: 180px;
+  animation: ctxIn 0.13s ease-out;
+}
+
+@keyframes ctxIn {
+  from { opacity: 0; transform: scale(0.94) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.ctxMine { right: 0; }
+.ctxTheirs { left: 0; }
+
+.ctxEmojiRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bubbleMenuBtn {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(18, 18, 28, 0.75);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #aebac1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, transform 0.1s;
+  z-index: 5;
+}
+
+.bubble:hover .bubbleMenuBtn {
+  opacity: 1;
+}
+
+.bubbleMenuBtn:hover {
+  background: rgba(30, 30, 48, 0.95);
+  color: #fff;
+  transform: scale(1.08);
+}
+
+@media (max-width: 768px) {
+  .bubbleMenuBtn {
+    opacity: 0.65;
+  }
+}
+
+.ctxItem {
+  display: block;
+  width: 100%;
+  padding: 11px 16px;
+  background: none;
+  border: none;
+  color: #eeeef4;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-family: inherit;
+}
+
+.ctxItem:hover { background: rgba(255,255,255,0.07); }
+
+.ctxDanger { color: #f87171; }
+.ctxDanger:hover { background: rgba(248,113,113,0.1); }
+
+.ctxCancel {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.04);
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  color: #8888a8;
+  font-size: 0.82rem;
+  text-align: center;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* ── Emoji Picker ──────────────────────────────────────────────────────────── */
+.emojiPicker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  background: #1c1c2e;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 28px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  z-index: 50;
+  animation: ctxIn 0.13s ease-out;
+}
+
+.emojiPickerMine { right: 0; }
+.emojiPickerTheirs { left: 0; }
+
+.emojiBtn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 50%;
+  transition: transform 0.12s, background 0.1s;
+  line-height: 1;
+}
+
+.emojiBtn:hover { transform: scale(1.3); background: rgba(255,255,255,0.06); }
+.emojiBtn:active { transform: scale(1.1); }
+
+.emojiClose {
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  color: #8888a8;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 50%;
+  transition: color 0.1s;
+}
+
+.emojiClose:hover { color: #eeeef4; }
+
+/* ── Reaction chips ────────────────────────────────────────────────────────── */
+.reactionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 0 8px;
+}
+
+.reactionMine { justify-content: flex-end; }
+
+.reactionChip {
+  background: rgba(167,139,250,0.15);
+  border: 1px solid rgba(167,139,250,0.25);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.reactionChip:hover { background: rgba(167,139,250,0.25); }
+
+/* ── Reply preview inside bubble ──────────────────────────────────────────── */
+.replyPreview {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+
+.replyLine {
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #e879a0, #a78bfa);
+  flex-shrink: 0;
+}
+
+.replyText {
+  font-size: 0.8rem;
+  color: #9191a8;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+

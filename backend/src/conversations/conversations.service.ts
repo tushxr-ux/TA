@@ -39,10 +39,11 @@ export class ConversationsService {
       const partnerId = convMapPartner.get(convId);
       const partner = partnerId ? partnerMap.get(partnerId) : null;
 
-      const lastMsg = await this.ds.getRepository(Message).findOne({
-        where: { conversationId: convId, deletedForAll: false },
-        order: { createdAt: 'DESC' },
-      });
+      const lastMsg = await this.ds.getRepository(Message).createQueryBuilder('m')
+        .where('m.conversationId = :cid', { cid: convId })
+        .andWhere('(m.deletedForAll = false OR m.deletedForAll IS NULL)')
+        .orderBy('m.createdAt', 'DESC')
+        .getOne();
 
       let bodyStr = '';
       if (lastMsg?.body) {
@@ -113,12 +114,10 @@ export class ConversationsService {
     const memberships = await this.members.find({ where: { userId } });
     if (!memberships.length) return [];
     const convIds = memberships.map(m => m.conversationId);
-    return this.ds.getRepository(Message).find({
-      where: {
-        conversationId: In(convIds),
-        deletedForAll: false,
-      },
-      order: { createdAt: 'ASC' },
-    });
+    return this.ds.getRepository(Message).createQueryBuilder('m')
+      .where('m.conversationId IN (:...convIds)', { convIds })
+      .andWhere('(m.deletedForAll = false OR m.deletedForAll IS NULL)')
+      .orderBy('m.createdAt', 'ASC')
+      .getMany();
   }
 }

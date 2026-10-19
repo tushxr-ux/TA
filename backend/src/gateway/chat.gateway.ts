@@ -120,6 +120,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       body: data.body ? Buffer.from(data.body) : undefined,
       mediaId: data.mediaId,
       replyTo: data.replyTo,
+      deletedForAll: false,
     });
     await this.msgs.save(msg);
 
@@ -133,6 +134,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
 
     // ponytail: push notification for offline users handled in PushService — called from here in Phase 1.6
+  }
+
+  @SubscribeMessage('message:delete')
+  async onMessageDelete(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() data: { conversationId: string; messageId: string; scope: 'me' | 'all' },
+  ) {
+    if (data?.scope === 'all' && data?.messageId) {
+      await this.msgs.update({ id: data.messageId, senderId: socket.data.userId }, { deletedForAll: true });
+      this.server.to(data.conversationId).emit('message:deleted', { messageId: data.messageId });
+    }
+  }
+
+  @SubscribeMessage('message:react')
+  async onMessageReact(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() data: { conversationId: string; messageId: string; emoji: string },
+  ) {
+    if (data?.conversationId && data?.messageId) {
+      this.server.to(data.conversationId).emit('message:reacted', {
+        messageId: data.messageId,
+        userId: socket.data.userId,
+        emoji: data.emoji,
+      });
+    }
   }
 
   @SubscribeMessage('message:delivered')

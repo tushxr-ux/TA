@@ -1,8 +1,8 @@
 "use client";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSocket } from "@/hooks/useSocket";
-import ChatBubble, { Message } from "@/components/ChatBubble";
+import ChatBubble, { Message, BubbleActions } from "@/components/ChatBubble";
 import DeleteRangeSheet from "@/components/DeleteRangeSheet";
 import Toast from "@/components/Toast";
 import {
@@ -22,6 +22,13 @@ import {
 } from "@/components/Icons";
 import { API_URL } from "@/lib/api";
 import styles from "./page.module.css";
+
+const RTC_CONFIG: RTCConfiguration = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ],
+};
 
 interface UserProfile {
   id: string;
@@ -86,18 +93,30 @@ export default function ChatPage() {
   const [myContactCode, setMyContactCode] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
+  // Reply
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+
+  // Profile panel & media/links
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileTab, setProfileTab] = useState<"media" | "links">("media");
+
   // Lightbox
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [lightboxName, setLightboxName] = useState("ta-photo.jpg");
   const [lightboxType, setLightboxType] = useState<"image" | "video">("image");
+  const [lightboxZoom, setLightboxZoom] = useState(1);
 
   // Send options
   const [sendViewOnce, setSendViewOnce] = useState(false);
 
-  // Screen share
+  // Screen share & Live Camera
   const [sharing, setSharing] = useState(false);
+  const [incomingLive, setIncomingLive] = useState<{ sessionId: string; from: string } | null>(null);
+  const [viewingRemoteStream, setViewingRemoteStream] = useState<MediaStream | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const peerConnRef = useRef<RTCPeerConnection | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -227,7 +246,10 @@ export default function ChatPage() {
         }
       }
 
-      setChats(combined);
+      // Only update chats if we got a valid response (don't wipe chats on transient error)
+      if (Array.isArray(convList) || Array.isArray(contactList)) {
+        setChats(combined);
+      }
     } catch (err) {
       console.warn("Failed to load chats:", err);
     }
@@ -396,10 +418,83 @@ export default function ChatPage() {
           setPartnerOnline(Boolean(p.online));
         }
       }),
+
+      on("message:deleted", (d: any) => {
+        if (d?.messageId) {
+          setMessages(prev => prev.filter(m => m.id !== d.messageId));
+        }
+      }),
+
+      on("message:reacted", (d: any) => {
+        if (d?.messageId && d?.userId) {
+          setMessages(prev => prev.map(m => {
+            if (m.id !== d.messageId) return m;
+            const reactions = { ...(m.reactions || {}) };
+            if (reactions[d.userId] === d.emoji) delete reactions[d.userId];
+            else reactions[d.userId] = d.emoji;
+            return { ...m, reactions };
+          }));
+        }
+      }),
+
+      on("screen:requested", (d: any) => {
+        if (d?.sessionId && d?.from) {
+          setIncomingLive({ sessionId: d.sessionId, from: d.from });
+        }
+      }),
+
+      on("screen:accepted", async () => {
+        const pc = peerConnRef.current;
+        if (!pc || !activeChat?.contactId || !activeConvId) return;
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          emit("screen:offer", { sessionId: activeConvId, to: activeChat.contactId, sdp: JSON.stringify(offer) });
+        } catch (err) {
+          console.warn("Screen offer error:", err);
+        }
+      }),
+
+      on("screen:declined", () => {
+        setToast("Partner declined live share.");
+        stopScreenShare();
+      }),
+
+      on("screen:signal", async (sig: any) => {
+        const pc = peerConnRef.current;
+        if (!pc) return;
+        try {
+          if (sig.type === "offer" && sig.data) {
+            const offerDesc = JSON.parse(sig.data);
+            await pc.setRemoteDescription(new RTCSessionDescription(offerDesc));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            if (activeChat?.contactId && activeConvId) {
+              emit("screen:answer", { sessionId: activeConvId, to: activeChat.contactId, sdp: JSON.stringify(answer) });
+            }
+          } else if (sig.type === "answer" && sig.data) {
+            const answerDesc = JSON.parse(sig.data);
+            await pc.setRemoteDescription(new RTCSessionDescription(answerDesc));
+          } else if (sig.type === "ice" && sig.data) {
+            await pc.addIceCandidate(new RTCIceCandidate(sig.data));
+          }
+        } catch (err) {
+          console.warn("Screen signaling error:", err);
+        }
+      }),
+
+      on("screen:ended", () => {
+        if (viewingRemoteStream) {
+          viewingRemoteStream.getTracks().forEach(t => t.stop());
+          setViewingRemoteStream(null);
+        }
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+        setToast("Live stream ended.");
+      }),
     ];
 
     return () => offs.forEach(off => off?.());
-  }, [on, emit, activeConvId, activeChat, me]);
+  }, [on, emit, activeConvId, activeChat, me, viewingRemoteStream]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -424,6 +519,7 @@ export default function ChatPage() {
 
     setMessages(prev => [...prev, optimistic]);
     setInput("");
+    setReplyTo(null);
     // Keep keyboard open on mobile — refocus the input immediately after clear
     setTimeout(() => msgInputRef.current?.focus(), 0);
     stopTyping();
@@ -433,6 +529,8 @@ export default function ChatPage() {
       clientMsgId,
       type: "text",
       body: text,
+      replyTo: replyTo?.id,
+      replyBody: replyTo?.body?.slice(0, 100),
     });
 
     setChats(prev => prev.map(c => {
@@ -450,7 +548,7 @@ export default function ChatPage() {
       }
       return c;
     }));
-  }, [input, activeConvId, me, emit]);
+  }, [input, activeConvId, me, emit, replyTo]);
 
   // ── Typing Indicator ──────────────────────────────────────────────────────
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -536,20 +634,71 @@ export default function ChatPage() {
     reader.readAsDataURL(file);
   };
 
-  // ── Screen Share ──────────────────────────────────────────────────────────
+  // ── Screen Share & Live Video ─────────────────────────────────────────────
   const startScreenShare = async () => {
-    if (!activeConvId) { setToast("Open a conversation first"); return; }
+    if (!activeConvId || !activeChat) { setToast("Open a conversation first"); return; }
+
+    let stream: MediaStream | null = null;
+    let mode: "screen" | "camera" = "screen";
+
     try {
-      const stream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      if (typeof navigator !== "undefined" && navigator.mediaDevices?.getDisplayMedia) {
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        } catch (displayErr: any) {
+          if (displayErr?.name === "NotAllowedError" || displayErr?.name === "AbortError") {
+            // User cancelled the prompt quietly
+            return;
+          }
+          mode = "camera";
+        }
+      } else {
+        mode = "camera";
+      }
+
+      // Fallback for mobile / devices where getDisplayMedia is unsupported
+      if (!stream && typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+          mode = "camera";
+        } catch (camErr: any) {
+          if (camErr?.name === "NotAllowedError") {
+            setToast("Camera/Screen permission denied.");
+            return;
+          }
+        }
+      }
+
+      if (!stream) {
+        setToast("Screen or camera share not available on this device/connection.");
+        return;
+      }
+
       screenStreamRef.current = stream;
       setSharing(true);
       if (screenVideoRef.current) {
         screenVideoRef.current.srcObject = stream;
-        screenVideoRef.current.play();
+        screenVideoRef.current.play().catch(() => {});
       }
+
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      peerConnRef.current = pc;
+      stream.getTracks().forEach(track => pc.addTrack(track, stream!));
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate && activeChat?.contactId) {
+          emit("screen:ice", { sessionId: activeConvId, to: activeChat.contactId, candidate: event.candidate });
+        }
+      };
+
+      emit("screen:request", { sessionId: activeConvId, to: activeChat.contactId });
+
       stream.getTracks()[0].addEventListener("ended", stopScreenShare);
-    } catch {
-      setToast("Screen sharing cancelled or not supported.");
+      setToast(mode === "screen" ? "Sharing screen..." : "Sharing live camera...");
+    } catch (err: any) {
+      if (err?.name !== "NotAllowedError") {
+        setToast("Unable to start live stream.");
+      }
     }
   };
 
@@ -557,7 +706,46 @@ export default function ChatPage() {
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
     if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
+    if (peerConnRef.current) {
+      peerConnRef.current.close();
+      peerConnRef.current = null;
+    }
+    if (activeConvId && activeChat?.contactId) {
+      emit("screen:end", { sessionId: activeConvId, to: activeChat.contactId });
+    }
     setSharing(false);
+  };
+
+  const acceptLiveStream = async () => {
+    if (!incomingLive || !activeChat?.contactId || !activeConvId) return;
+    try {
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      peerConnRef.current = pc;
+      pc.ontrack = (event) => {
+        const remoteStream = event.streams[0] || new MediaStream([event.track]);
+        setViewingRemoteStream(remoteStream);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
+          remoteVideoRef.current.play().catch(() => {});
+        }
+      };
+      pc.onicecandidate = (event) => {
+        if (event.candidate && incomingLive) {
+          emit("screen:ice", { sessionId: incomingLive.sessionId, to: incomingLive.from, candidate: event.candidate });
+        }
+      };
+      emit("screen:accept", { sessionId: incomingLive.sessionId, to: incomingLive.from });
+      setIncomingLive(null);
+    } catch (err) {
+      console.warn("Failed to accept live stream:", err);
+    }
+  };
+
+  const declineLiveStream = () => {
+    if (incomingLive) {
+      emit("screen:decline", { sessionId: incomingLive.sessionId, to: incomingLive.from });
+      setIncomingLive(null);
+    }
   };
 
   // ── Lightbox ──────────────────────────────────────────────────────────────
@@ -565,9 +753,110 @@ export default function ChatPage() {
     setLightboxUrl(url);
     setLightboxName(name);
     setLightboxType(type);
+    setLightboxZoom(1);
   };
 
-  const closeLightbox = () => setLightboxUrl(null);
+  const closeLightbox = () => {
+    setLightboxUrl(null);
+    setLightboxZoom(1);
+  };
+
+  const downloadLightboxMedia = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!lightboxUrl) return;
+    try {
+      if (lightboxUrl.startsWith("data:") || lightboxUrl.startsWith("blob:")) {
+        const a = document.createElement("a");
+        a.href = lightboxUrl;
+        a.download = lightboxName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        const res = await fetch(lightboxUrl);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = lightboxName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      }
+      setToast("Download started!");
+    } catch {
+      window.open(lightboxUrl, "_blank");
+    }
+  };
+
+  // ── Delete single message ──────────────────────────────────────────────────
+  const deleteMessage = useCallback(async (msg: Message, scope: "me" | "all") => {
+    setMessages(prev => prev.filter(m => m.id !== msg.id));
+    if (activeConvId) {
+      emit("message:delete", { conversationId: activeConvId, messageId: msg.id, scope });
+    }
+    if (scope === "all") {
+      try {
+        const curToken = token || localStorage.getItem("access_token");
+        await fetch(`${API_URL}/messages/${msg.id}?scope=all`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${curToken}` },
+        });
+      } catch { /* optimistic deletion already applied */ }
+    }
+  }, [token, activeConvId, emit]);
+
+  // ── Reply ─────────────────────────────────────────────────────────────────
+  const handleReply = useCallback((msg: Message) => {
+    setReplyTo(msg);
+    msgInputRef.current?.focus();
+  }, []);
+
+  // ── Reactions ─────────────────────────────────────────────────────────────
+  const handleReact = useCallback((msg: Message, emoji: string) => {
+    const myId = me?.id || "me";
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msg.id) return m;
+      const reactions = { ...(m.reactions || {}) };
+      if (reactions[myId] === emoji) delete reactions[myId]; // toggle off
+      else reactions[myId] = emoji;
+      return { ...m, reactions };
+    }));
+    if (activeConvId) {
+      emit("message:react", { conversationId: activeConvId, messageId: msg.id, emoji });
+    }
+  }, [me, activeConvId, emit]);
+
+  // ── Bubble Actions memoized ───────────────────────────────────────────────
+  const bubbleActions: BubbleActions = useMemo(() => ({
+    onDelete: deleteMessage,
+    onReply: handleReply,
+    onReact: handleReact,
+    onMediaClick: openLightbox,
+  }), [deleteMessage, handleReply, handleReact]);
+
+  // ── Media & Links for Profile Panel ───────────────────────────────────────
+  const chatMediaList = useMemo(() => {
+    return messages.filter(m => (m.type === "image" || m.type === "video") && (m.mediaUrl || m.body));
+  }, [messages]);
+
+  const chatLinksList = useMemo(() => {
+    const urlRegex = /(https?:\/\/[^\s]+)/gi;
+    const items: { url: string; time: string }[] = [];
+    for (const m of messages) {
+      if (m.type === "text" && m.body) {
+        const matches = m.body.match(urlRegex);
+        if (matches) {
+          const time = new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          for (const u of matches) {
+            items.push({ url: u, time });
+          }
+        }
+      }
+    }
+    return items;
+  }, [messages]);
 
   // ── Add Contact ───────────────────────────────────────────────────────────
   const handleAddContact = async (e: React.FormEvent) => {
@@ -834,20 +1123,25 @@ export default function ChatPage() {
           <>
             {/* Chat Room Header */}
             <header className={styles.chatHeader}>
-              <div
-                className={styles.chatHeaderLeft}
-                onClick={() => {
+              <button
+                type="button"
+                className={styles.backBtn}
+                aria-label="Back to contacts"
+                title="Back"
+                onClick={(e) => {
+                  e.stopPropagation();
                   setActiveChat(null);
                   loadChatsAndContacts();
                 }}
               >
-                <button
-                  className={styles.backBtn}
-                  aria-label="Back to contacts"
-                  title="Back"
-                >
-                  <IconBack size={22} />
-                </button>
+                <IconBack size={22} />
+              </button>
+
+              <div
+                className={styles.chatHeaderLeft}
+                onClick={() => setShowProfile(true)}
+                title="View partner profile, media & links"
+              >
                 <div className={styles.avatarWrap}>
                   <div className={styles.avatar}>
                     {(activeChat.displayName || "U").charAt(0).toUpperCase()}
@@ -875,6 +1169,15 @@ export default function ChatPage() {
                       className={styles.menuItem}
                       onClick={() => {
                         setShowMenu(false);
+                        setShowProfile(true);
+                      }}
+                    >
+                      👤 Contact Info
+                    </button>
+                    <button
+                      className={styles.menuItem}
+                      onClick={() => {
+                        setShowMenu(false);
                         setShowDeleteSheet(true);
                       }}
                     >
@@ -884,6 +1187,49 @@ export default function ChatPage() {
                 )}
               </div>
             </header>
+
+            {/* Incoming Live Share Request Banner */}
+            {incomingLive && (
+              <div className={styles.incomingLiveBanner}>
+                <div className={styles.incomingLiveText}>
+                  <span>🎥</span>
+                  <span>{activeChat.displayName} is sharing live screen/camera!</span>
+                </div>
+                <div className={styles.incomingLiveBtns}>
+                  <button className={styles.incomingLiveWatchBtn} onClick={acceptLiveStream}>
+                    Watch Live
+                  </button>
+                  <button className={styles.incomingLiveDeclineBtn} onClick={declineLiveStream}>
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Remote Live Video Player */}
+            {viewingRemoteStream && (
+              <div className={styles.remoteVideoOverlay}>
+                <div className={styles.remoteVideoHeader}>
+                  <span>🔴 Live Stream from {activeChat.displayName}</span>
+                  <button
+                    className={styles.remoteVideoClose}
+                    onClick={() => {
+                      viewingRemoteStream.getTracks().forEach(t => t.stop());
+                      setViewingRemoteStream(null);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <video
+                  ref={remoteVideoRef}
+                  className={styles.remoteVideoElement}
+                  autoPlay
+                  playsInline
+                  controls
+                />
+              </div>
+            )}
 
             {/* Messages Area */}
             <div
@@ -908,7 +1254,7 @@ export default function ChatPage() {
                   key={msg.id}
                   msg={msg}
                   isMine={msg.senderId === (me?.id || "me")}
-                  onMediaClick={openLightbox}
+                  actions={bubbleActions}
                 />
               ))}
 
@@ -921,8 +1267,36 @@ export default function ChatPage() {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* Reply Preview Bar */}
+            {replyTo && (
+              <div className={styles.replyBar}>
+                <div className={styles.replyBarLeft}>
+                  <span className={styles.replyBarTitle}>
+                    Replying to {replyTo.senderId === (me?.id || "me") ? "yourself" : activeChat.displayName}
+                  </span>
+                  <span className={styles.replyBarSnippet}>
+                    {replyTo.type === "image" ? "📷 Photo" : replyTo.type === "video" ? "🎥 Video" : replyTo.body || "Media"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={styles.replyBarClose}
+                  onClick={() => setReplyTo(null)}
+                  title="Cancel reply"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             {/* Bottom Input Bar */}
-            <footer className={styles.inputBar}>
+            <form
+              className={styles.inputBar}
+              onSubmit={e => {
+                e.preventDefault();
+                sendMessage();
+              }}
+            >
               <input
                 ref={fileInputRef}
                 type="file"
@@ -933,6 +1307,7 @@ export default function ChatPage() {
 
               {/* Attach */}
               <button
+                type="button"
                 className={styles.iconBtn}
                 title="Attach photo or audio"
                 aria-label="Attach file"
@@ -944,6 +1319,7 @@ export default function ChatPage() {
 
               {/* View-Once Toggle */}
               <button
+                type="button"
                 className={styles.iconBtn}
                 title={sendViewOnce ? "View-once ON — next photo burns after viewing" : "Send as view-once photo"}
                 aria-label="View once"
@@ -960,10 +1336,11 @@ export default function ChatPage() {
                 )}
               </button>
 
-              {/* Screen Share */}
+              {/* Screen Share / Live Camera */}
               <button
+                type="button"
                 className={styles.iconBtn}
-                title={sharing ? "Stop sharing screen" : "Share your screen"}
+                title={sharing ? "Stop live share" : "Share screen or live camera"}
                 aria-label="Screen share"
                 onClick={sharing ? stopScreenShare : startScreenShare}
               >
@@ -989,20 +1366,24 @@ export default function ChatPage() {
               </div>
 
               <button
+                type="submit"
                 className={styles.sendBtn}
                 aria-label="Send message"
                 disabled={!input.trim()}
-                onClick={sendMessage}
+                onPointerDown={e => {
+                  e.preventDefault();
+                  sendMessage();
+                }}
               >
                 <IconSend size={18} color="#ffffff" />
               </button>
-            </footer>
+            </form>
 
             {/* Screen Share Preview */}
             {sharing && (
               <div className={styles.screenShareBar}>
                 <span className={styles.screenShareDot} />
-                <span className={styles.screenShareLabel}>Sharing screen</span>
+                <span className={styles.screenShareLabel}>Sharing live stream</span>
                 <video ref={screenVideoRef} className={styles.screenShareThumb} muted autoPlay playsInline />
                 <button className={styles.screenShareStop} onClick={stopScreenShare}>Stop</button>
               </div>
@@ -1139,6 +1520,122 @@ export default function ChatPage() {
       {/* Toast */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
+      {/* ── Partner Profile & Media/Links Panel ──────────────────────────── */}
+      {showProfile && activeChat && (
+        <div className={styles.profileOverlay} onClick={() => setShowProfile(false)}>
+          <aside className={styles.profilePanel} onClick={e => e.stopPropagation()}>
+            <header className={styles.profileHeader}>
+              <button
+                type="button"
+                className={styles.profileCloseBtn}
+                onClick={() => setShowProfile(false)}
+                title="Close"
+              >
+                ✕
+              </button>
+              <h3 className={styles.profileTitle}>Contact Info</h3>
+            </header>
+
+            <div className={styles.profileHero}>
+              <div className={styles.profileAvatar}>
+                {(activeChat.displayName || "U").charAt(0).toUpperCase()}
+              </div>
+              <h2 className={styles.profileName}>{activeChat.displayName}</h2>
+              {activeChat.username && (
+                <span className={styles.profileUsername}>@{activeChat.username}</span>
+              )}
+              <div className={styles.profileStatusPill}>
+                <span className={partnerOnline ? styles.onlineDot : styles.offlineDot} />
+                <span>{partnerTyping ? "typing…" : partnerOnline ? "Online" : "Offline"}</span>
+              </div>
+            </div>
+
+            {/* Media & Links Tabs */}
+            <div className={styles.profileTabs}>
+              <button
+                type="button"
+                className={`${styles.profileTab} ${profileTab === "media" ? styles.profileTabActive : ""}`}
+                onClick={() => setProfileTab("media")}
+              >
+                📷 Media ({chatMediaList.length})
+              </button>
+              <button
+                type="button"
+                className={`${styles.profileTab} ${profileTab === "links" ? styles.profileTabActive : ""}`}
+                onClick={() => setProfileTab("links")}
+              >
+                🔗 Links ({chatLinksList.length})
+              </button>
+            </div>
+
+            {/* Tab content */}
+            <div className={styles.profileContent}>
+              {profileTab === "media" ? (
+                chatMediaList.length === 0 ? (
+                  <div className={styles.profileEmpty}>
+                    <p>No photos or videos in this chat yet.</p>
+                  </div>
+                ) : (
+                  <div className={styles.profileMediaGrid}>
+                    {chatMediaList.map((m, idx) => {
+                      const url = m.mediaUrl || m.body || "";
+                      const isVid = m.type === "video";
+                      return (
+                        <div
+                          key={m.id || idx}
+                          className={styles.profileMediaThumb}
+                          onClick={() => openLightbox(url, `ta-${m.type}-${idx}.jpg`, isVid ? "video" : "image")}
+                        >
+                          {isVid ? (
+                            <video src={url} className={styles.profileMediaImg} preload="metadata" muted />
+                          ) : (
+                            <img src={url} alt="Media" className={styles.profileMediaImg} loading="lazy" />
+                          )}
+                          {isVid && <span className={styles.profileMediaVideoBadge}>▶</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                chatLinksList.length === 0 ? (
+                  <div className={styles.profileEmpty}>
+                    <p>No links shared in this chat yet.</p>
+                  </div>
+                ) : (
+                  <div className={styles.profileLinksList}>
+                    {chatLinksList.map((item, idx) => (
+                      <a
+                        key={idx}
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={styles.profileLinkCard}
+                      >
+                        <span className={styles.profileLinkIcon}>🔗</span>
+                        <div className={styles.profileLinkDetails}>
+                          <span className={styles.profileLinkUrl}>{item.url}</span>
+                          <span className={styles.profileLinkTime}>{item.time}</span>
+                        </div>
+                        <span className={styles.profileLinkArrow}>↗</span>
+                      </a>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className={styles.profileSecurityCard}>
+              <IconLock size={16} color="#00a884" />
+              <div>
+                <strong>End-to-End Encrypted</strong>
+                <p>Messages and media are secured between your devices with private keys.</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
+
       {/* ── Media Lightbox (image + video) ──────────────────────────────────── */}
       {lightboxUrl && (
         <div
@@ -1151,18 +1648,55 @@ export default function ChatPage() {
           <div className={styles.lightboxToolbar} onClick={e => e.stopPropagation()}>
             <span className={styles.lightboxTitle}>{lightboxType === "video" ? "Video" : "Photo"}</span>
             <div className={styles.lightboxActions}>
-              <a
-                href={lightboxUrl}
-                download={lightboxName}
-                target="_blank"
-                rel="noreferrer"
+              {lightboxType === "image" && (
+                <>
+                  <button
+                    type="button"
+                    className={styles.lightboxBtn}
+                    title="Zoom Out (-)"
+                    onClick={() => setLightboxZoom(z => Math.max(0.5, +(z - 0.5).toFixed(1)))}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e9edef" strokeWidth="2" strokeLinecap="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      <line x1="8" y1="11" x2="14" y2="11" />
+                    </svg>
+                  </button>
+                  <span className={styles.lightboxZoomText}>{Math.round(lightboxZoom * 100)}%</span>
+                  <button
+                    type="button"
+                    className={styles.lightboxBtn}
+                    title="Zoom In (+)"
+                    onClick={() => setLightboxZoom(z => Math.min(4, +(z + 0.5).toFixed(1)))}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e9edef" strokeWidth="2" strokeLinecap="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      <line x1="11" y1="8" x2="11" y2="14" />
+                      <line x1="8" y1="11" x2="14" y2="11" />
+                    </svg>
+                  </button>
+                  {lightboxZoom !== 1 && (
+                    <button
+                      type="button"
+                      className={styles.lightboxBtn}
+                      title="Reset Zoom"
+                      onClick={() => setLightboxZoom(1)}
+                    >
+                      1:1
+                    </button>
+                  )}
+                </>
+              )}
+              <button
+                type="button"
                 className={styles.lightboxBtn}
                 title="Download"
-                onClick={e => e.stopPropagation()}
+                onClick={downloadLightboxMedia}
               >
                 <IconDownload size={22} color="#e9edef" />
-              </a>
-              <button className={styles.lightboxBtn} title="Close" onClick={closeLightbox}>
+              </button>
+              <button type="button" className={styles.lightboxBtn} title="Close" onClick={closeLightbox}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#e9edef" strokeWidth="2" strokeLinecap="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
@@ -1187,10 +1721,16 @@ export default function ChatPage() {
                 alt="Full size photo"
                 className={styles.lightboxImg}
                 draggable={false}
+                style={{
+                  transform: `scale(${lightboxZoom})`,
+                  transition: "transform 0.18s ease-out",
+                  cursor: lightboxZoom > 1 ? "grab" : "zoom-in",
+                }}
+                onDoubleClick={() => setLightboxZoom(z => (z === 1 ? 2.5 : 1))}
               />
             )}
           </div>
-          <div className={styles.lightboxHint}>Pinch to zoom &middot; Tap outside to close</div>
+          <div className={styles.lightboxHint}>Double-tap or pinch to zoom &middot; Tap outside to close</div>
         </div>
       )}
     </div>

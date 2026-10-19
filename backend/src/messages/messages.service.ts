@@ -14,7 +14,7 @@ export class MessagesService {
   async getHistory(conversationId: string, userId: string, before?: string, limit = 50) {
     const qb = this.msgs.createQueryBuilder('m')
       .where('m.conversationId = :cid', { cid: conversationId })
-      .andWhere('m.deletedForAll = false')
+      .andWhere('(m.deletedForAll = false OR m.deletedForAll IS NULL)')
       .orderBy('m.createdAt', 'DESC')
       .take(Math.min(limit, 100));
 
@@ -48,7 +48,7 @@ export class MessagesService {
       WHERE  m.conversation_id = $1
         AND  m.created_at >= $2::date
         AND  m.created_at <  ($3::date + INTERVAL '1 day')
-        AND  m.deleted_for_all = false
+        AND  (m.deleted_for_all = false OR m.deleted_for_all IS NULL)
     `, [conversationId, from, to]);
 
     return { count: Number(result[0].count), bytes: Number(result[0].bytes) };
@@ -70,7 +70,7 @@ export class MessagesService {
         WHERE  m.conversation_id = $1
           AND  m.created_at >= $2::date
           AND  m.created_at <  ($3::date + INTERVAL '1 day')
-          AND  m.deleted_for_all = false
+          AND  (m.deleted_for_all = false OR m.deleted_for_all IS NULL)
       `, [conversationId, from, to]);
 
       if (messages.length === 0) return { deletedCount: 0, freedBytes: 0 };

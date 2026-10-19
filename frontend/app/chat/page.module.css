@@ -992,3 +992,461 @@
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+/* ── Reply Bar (above input bar) ─────────────────────────────────────────── */
+.replyBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--surface2);
+  border-top: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  animation: slideUp 0.15s ease-out;
+  flex-shrink: 0;
+}
+
+.replyBarLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.replyBarTitle {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.replyBarSnippet {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.replyBarClose {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 50%;
+  transition: color 0.12s, background 0.12s;
+  flex-shrink: 0;
+}
+
+.replyBarClose:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Profile Drawer / Modal ──────────────────────────────────────────────── */
+.profileOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  z-index: 1500;
+  display: flex;
+  justify-content: flex-end;
+  animation: fadeIn 0.18s ease-out;
+}
+
+.profilePanel {
+  width: 100%;
+  max-width: 440px;
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.6);
+  animation: slideFromRight 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow-y: auto;
+}
+
+@keyframes slideFromRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.profileHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+  flex-shrink: 0;
+}
+
+.profileCloseBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.12s, color 0.12s;
+}
+
+.profileCloseBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.profileTitle {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.profileHero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 20px 20px;
+  background: linear-gradient(180deg, var(--surface2) 0%, var(--surface) 100%);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
+.profileAvatar {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  color: #fff;
+  font-size: 2.2rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(0, 168, 132, 0.25);
+  margin-bottom: 14px;
+}
+
+.profileName {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+
+.profileUsername {
+  font-size: 0.88rem;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
+.profileStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.onlineDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.offlineDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+/* Tabs */
+.profileTabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+  flex-shrink: 0;
+}
+
+.profileTab {
+  flex: 1;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+  text-align: center;
+}
+
+.profileTabActive {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.profileContent {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.profileEmpty {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* Media Grid */
+.profileMediaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.profileMediaThumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #111b21;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: transform 0.12s, filter 0.12s;
+}
+
+.profileMediaThumb:hover {
+  transform: scale(1.02);
+  filter: brightness(1.1);
+}
+
+.profileMediaImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.profileMediaVideoBadge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 0.65rem;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+/* Links List */
+.profileLinksList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profileLinkCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.profileLinkCard:hover {
+  background: var(--surface3);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.profileLinkIcon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.profileLinkDetails {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.profileLinkUrl {
+  font-size: 0.85rem;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profileLinkTime {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.profileLinkArrow {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.profileSecurityCard {
+  margin: 16px;
+  padding: 14px;
+  border-radius: 10px;
+  background: rgba(0, 168, 132, 0.08);
+  border: 1px solid rgba(0, 168, 132, 0.2);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.profileSecurityCard strong {
+  display: block;
+  color: var(--text);
+  margin-bottom: 2px;
+  font-size: 0.82rem;
+}
+
+.profileSecurityCard p {
+  margin: 0;
+}
+
+/* Lightbox zoom display text */
+.lightboxZoomText {
+  font-size: 0.8rem;
+  color: #e9edef;
+  font-weight: 600;
+  min-width: 44px;
+  text-align: center;
+}
+
+/* Incoming live share banner */
+.incomingLiveBanner {
+  position: absolute;
+  top: 72px;
+  left: 16px;
+  right: 16px;
+  background: linear-gradient(135deg, #1c1c2e 0%, #2a203a 100%);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 100;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  animation: slideUp 0.2s ease-out;
+}
+
+.incomingLiveText {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #eeeef4;
+}
+
+.incomingLiveBtns {
+  display: flex;
+  gap: 8px;
+}
+
+.incomingLiveWatchBtn {
+  background: #00a884;
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+
+.incomingLiveWatchBtn:hover { opacity: 0.9; }
+
+.incomingLiveDeclineBtn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #eeeef4;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* Remote stream floating window */
+.remoteVideoOverlay {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  width: 340px;
+  max-width: 90vw;
+  background: #111b21;
+  border-radius: 12px;
+  border: 1.5px solid rgba(0, 168, 132, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+}
+
+.remoteVideoHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.8);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #00a884;
+}
+
+.remoteVideoElement {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  object-fit: contain;
+}
+
+.remoteVideoClose {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
